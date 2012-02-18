@@ -1,0 +1,3 @@
+EC2_COLLECTIVE
+
+Alternative to MCollective using AWS SQS
