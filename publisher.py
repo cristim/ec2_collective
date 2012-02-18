@@ -8,58 +8,28 @@ import signal
 import sys
 import getopt
 
-class Usage(Exception):
-    def __init__(self, msg):
-        self.msg = msg
-
-def main(argv=None):
-    if argv is None:
-        argv = sys.argv
-    try:
-        try:
-            opts, args = getopt.getopt(argv[1:], "h", ["help"])
-        except getopt.error, msg:
-             raise Usage(msg)
-        # more code, unchanged
-    except Usage, err:
-        print >>sys.stderr, err.msg
-        print >>sys.stderr, "for help use --help"
-        return 2
-
-if __name__ == "__main__":
-    sys.exit(main())
-
-NOW = time.time()
-
+# These will later be put in a config file
 REGION='eu-west-1'
 WRITE_QUEUE='master'
 READ_QUEUE='agent'
 TIMEOUT=15
 
-# Signal handler
+def main():
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], "h", ["help"])
+        run()
+    except getopt.error, msg:
+        print >>sys.stderr, err.msg
+        print >>sys.stderr, "for help use --help"
+        return 2
 
+# Signal handler
 def master_timeout(signum, frame):
     print 'Timeout reached - exiting'
     exit
 
 # When timeout happens master_timeout definition executes raising an exception
 signal.signal(signal.SIGALRM, master_timeout)
-
-#my_dict={'type': 'cli', 'when':'now', 'cmd':'uptime', 'ts':NOW};
-my_dict={'type': 'discovery', 'when':'now', 'cmd':'ping', 'ts':NOW};
-STRING=json.dumps(my_dict)
-
-# Connect with key, secret and region
-conn = connect_to_region(REGION)
-write_queue = conn.get_queue(WRITE_QUEUE)
-read_queue = conn.get_queue(READ_QUEUE)
-
-# Check queue settings
-real_v_timeout=int(write_queue.get_timeout())
-msg_ret_period = int(write_queue.get_attributes(attributes='MessageRetentionPeriod')['MessageRetentionPeriod'])
-
-if real_v_timeout != 0:
-    print 'Timeout is not 0! (' + str(real_v_timeout) + ')'
 
 def receive_msg (read_queue, org):
     response = None
@@ -123,25 +93,40 @@ def delete_org_message (write_queue, org):
 
     return False
 
-# Write a messages
-message = write_queue.new_message(STRING)
 
-org = write_queue.write(message)
-if org.id is None:
-    print 'Failed to write command to queue'
-    exit
+def run():
 
-# Start timeout
-signal.alarm(TIMEOUT)
+    #my_dict={'type': 'cli', 'when':'now', 'cmd':'uptime', 'ts':NOW};
+    my_dict={'type': 'discovery', 'when':'now', 'cmd':'ping', 'ts':time.time()};
+    STRING=json.dumps(my_dict)
+    
+    # Connect with key, secret and region
+    conn = connect_to_region(REGION)
+    write_queue = conn.get_queue(WRITE_QUEUE)
+    read_queue = conn.get_queue(READ_QUEUE)
+    
+    # Write a messages
+    message = write_queue.new_message(STRING)
+    
+    org = write_queue.write(message)
+    if org.id is None:
+        print 'Failed to write command to queue'
+        exit
+    
+    # Start timeout
+    signal.alarm(TIMEOUT)
+    
+    muh = None
+    while ( muh is None ):
+        muh = receive_msg (read_queue, org)
+    print muh
+    signal.alarm(0)
+    
+    signal.alarm(TIMEOUT)
+    rm_org_msg = False
+    while (rm_org_msg is False):
+        rm_org_msg = delete_org_message (write_queue, org)
+    signal.alarm(0)
 
-muh = None
-while ( muh is None ):
-    muh = receive_msg (read_queue, org)
-print muh
-signal.alarm(0)
-
-signal.alarm(TIMEOUT)
-rm_org_msg = False
-while (rm_org_msg is False):
-    rm_org_msg = delete_org_message (write_queue, org)
-signal.alarm(0)
+if __name__ == "__main__":
+    sys.exit(main())
