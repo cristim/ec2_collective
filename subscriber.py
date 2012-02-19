@@ -3,12 +3,14 @@
 from boto.sqs.connection import SQSConnection
 from boto.sqs.regioninfo import SQSRegionInfo
 from boto.sqs import connect_to_region
+from socket import gethostname
 import simplejson as json
 import subprocess, shlex, time
 
 REGION='eu-west-1'
 READ_QUEUE='master'
 WRITE_QUEUE='agent'
+HOSTNAME=gethostname()
 
 # Connect with key, secret and region
 conn = connect_to_region(REGION)
@@ -26,7 +28,7 @@ def cli_func (message):
            response =  'Failed to execute ' + cmd_str
 
         print 'Our response is ' + response
-        response={'type': type, 'output': response, 'ts':NOW, 'msg_id':msg.id};
+        response={'type': type, 'output': response, 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
         return response
 
 def receive_msg (msgs, read_msgs ):
@@ -51,18 +53,25 @@ def receive_msg (msgs, read_msgs ):
         type = str(message['type'])
         ts = str(message['ts'])
   
-        if type == 'discovery':
-            response={'type': type, 'output': ts, 'ts':NOW, 'msg_id':msg.id};
+        if type == 'discovery' or type== 'ping':
+            response={'type': type, 'output': ts, 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
+        elif type == 'count':
+            response={'type': type, 'output': 'yes master?', 'ts': time.time(), 'msg_id':msg.id, 'hostname':HOSTNAME};
         elif type == 'cli':
             response = cli_func (message) 
         else:
            response =  'Unknown command ' + cmd_str
-           response={'type': type, 'output': response, 'ts':NOW, 'msg_id':msg.id};
+           response={'type': type, 'output': response, 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
  
         response=json.dumps(response)
         message = write_queue.new_message(response)
-        write_queue.write(message)
-        print 'Responded to message'
+        org = write_queue.write(message)
+        if org.id is None:
+            print 'Failed to write response message'
+            del read_msgs[msg.id]
+        else:
+            print 'Responded to message'
+            time.sleep(1)
     
     return read_msgs
 
@@ -74,4 +83,5 @@ while True:
     msgs = read_queue.get_messages(num_messages=10, visibility_timeout=0)
 
     if (len(msgs) > 0):
+        print 'Found: ' + str(len(msgs))
         read_msgs = receive_msg ( msgs, read_msgs )
