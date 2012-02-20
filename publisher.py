@@ -11,26 +11,32 @@ import os
 
 # CFG FILE
 CFG='./master.json'
-os.path.exists(CFG)
 
-try:
-    fp = open(CFG, 'r')
-except IOError, e:
-    print ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
+def get_config():
+    if not os.path.exists(CFG):
+        print CFG + ' file does not exist'
+        sys.exit(1)
 
-try:
-    CONFIG=json.load(fp)
-except (TypeError, ValueError), e:
-    print 'Error in configuration file'
-    sys.exit(1)
+    try:
+        fp = open(CFG, 'r')
+    except IOError, e:
+        print ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
+    
+    try:
+        global CONFIG
+        CONFIG=json.load(fp)
+    except (TypeError, ValueError), e:
+        print 'Error in configuration file'
+        sys.exit(1)
 
 def usage():
     print >>sys.stderr, '    Usage:'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -t [ping|cli|script|s3] -c <command>'
     sys.exit(1)
-       
+
 
 def main():
+
     # Defaults
     type=None
     schedule=time.time()
@@ -165,6 +171,9 @@ def delete_org_message (write_queue, org):
 
 
 def run(type, schedule, cmd):
+
+    # Get configuration
+    get_config()
 
     # Connect with key, secret and region
     conn = connect_to_region(CONFIG['aws']['region'])
