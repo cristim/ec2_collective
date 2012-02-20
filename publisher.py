@@ -61,10 +61,15 @@ def master_timeout(signum, frame):
 # When timeout happens master_timeout definition executes raising an exception
 signal.signal(signal.SIGALRM, master_timeout)
 
+def type_ping (output, hostname):
+    response_time = round( (time.time() - float(output)) * 1000, 2 )
+    response_str = hostname + ' - response time: ' + str(response_time) + ' ms'
+
+    return response_str
+
 def receive_msgs (read_queue, org, old_msgs, agent_msgs):
-    num_of_replies=0
     response = None
-    response_str = None
+    responses = list()
 
     # Receive at least 1 message be fore continuing 
     rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=5)
@@ -98,29 +103,21 @@ def receive_msgs (read_queue, org, old_msgs, agent_msgs):
         else:
             agent_msgs[hostname] = hostname
 
-        if response_str is None:
-            response_str = ''
-        else:
-            # Add newline to reponse strings
-            response_str += '\n'
-
         if ( type == 'discovery' or type == 'ping' ):
-            response_time = round( (time.time() - float(output)) * 1000, 2 )
-            response_str += hostname + ' - response time: ' + str(response_time) + ' ms'
+            responses.append(type_ping (output, hostname))
         elif type == 'count':
-            num_of_replies+=1
-            response_str += str(num_of_replies) + ' agent(s) found'
+            responses.append(1)
         elif type == 'cli':
             response_str +=  output
         else:
-            response_str += 'Unknown type response from agent ' + type
+            responses.append('Unknown type response from agent ' + type)
 
         # We're done with the message - delete it
         if not read_queue.delete_message(rmsg):
             print 'Failed to delete reponse message'
 
     # Retrun all responses
-    return (response_str, old_msgs, agent_msgs)
+    return (responses, old_msgs, agent_msgs)
 
 def delete_org_message (write_queue, org):
     # Pick up written message and delete it
@@ -163,15 +160,24 @@ def run(type, schedule, cmd):
 
     old_msgs={}
     agent_msgs={}
+    agent_count=0
 
     while ( True ):
         responses, old_msgs, agent_msgs = receive_msgs (read_queue, org, old_msgs, agent_msgs)
-        if responses is not None:
-            print responses
+        if responses:
+            if type == 'count':
+                agent_count += len(responses)
+            else:
+                for response in responses:
+                    print response
             # Everytime we receive a message we wait 5 more seconds
             offset=int(time.time())
+
         if (int(time.time()) - offset) >= 2:
-           print ''
+           if type == 'count':
+               print str(agent_count)
+           else:
+               print ''
            break
     signal.alarm(0)
     
