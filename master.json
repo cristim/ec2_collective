@@ -1,0 +1,10 @@
+{ 
+    "general": {
+        "timeout": 15
+    },
+    "aws": {
+        "region": "eu-west-1",
+        "write_queue": "master",
+        "read_queue": "agent"
+    }
+}

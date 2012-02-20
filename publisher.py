@@ -7,12 +7,22 @@ import time
 import signal
 import sys
 import getopt
+import os
 
-# These will later be put in a config file
-REGION='eu-west-1'
-WRITE_QUEUE='master'
-READ_QUEUE='agent'
-TIMEOUT=15
+# CFG FILE
+CFG='./master.json'
+os.path.exists(CFG)
+
+try:
+    fp = open(CFG, 'r')
+except IOError, e:
+    print ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
+
+try:
+    CONFIG=json.load(fp)
+except (TypeError, ValueError), e:
+    print 'Error in configuration file'
+    sys.exit(1)
 
 def usage():
     print >>sys.stderr, '    Usage:'
@@ -21,19 +31,19 @@ def usage():
        
 
 def main():
+    # Defaults
+    type=None
+    schedule=time.time()
+    cmd=None
+
     if len(sys.argv) == 1:
         print >>sys.stderr, 'Missing options'
         usage()
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'ht:s:c:', ['help', 'type', 'schedule', 'command'])
+        opts, args = getopt.getopt(sys.argv[1:], 'ht:s:c:w:n:', ['help', 'type', 'schedule', 'command', 'with', 'without'])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
-  
-    # Defaults
-    type='ping'
-    schedule=time.time()
-    cmd='ping'
 
     for o, a in opts:
         if o in ('-h', '--help'):
@@ -50,6 +60,18 @@ def main():
                 schedule=a
         elif o in ('-c', '--command'):
                 cmd  = a
+        elif o in ('-w', '--with'):
+                with  = a
+        elif o in ('-n', '--without'):
+                without  = a
+
+    if type is None:
+        print >>sys.stderr, 'Please provide type'
+        usage()
+
+    if type == 'cli' and cmd is None:
+        print >>sys.stderr, 'Please provide command'
+        usage()
 
     run (type, schedule, cmd)
 
@@ -145,9 +167,9 @@ def delete_org_message (write_queue, org):
 def run(type, schedule, cmd):
 
     # Connect with key, secret and region
-    conn = connect_to_region(REGION)
-    write_queue = conn.get_queue(WRITE_QUEUE)
-    read_queue = conn.get_queue(READ_QUEUE)
+    conn = connect_to_region(CONFIG['aws']['region'])
+    write_queue = conn.get_queue(CONFIG['aws']['write_queue'])
+    read_queue = conn.get_queue(CONFIG['aws']['read_queue'])
 
     message={'type': type, 'schedule':schedule, 'cmd':cmd, 'ts':time.time()};
     message_json=json.dumps(message)
@@ -161,7 +183,7 @@ def run(type, schedule, cmd):
         exit
    
     # 15 second initial timeout  
-    signal.alarm(TIMEOUT)
+    signal.alarm(CONFIG['general']['timeout'])
     offset=int(time.time())
 
     old_msgs={}
@@ -171,9 +193,8 @@ def run(type, schedule, cmd):
     while ( True ):
         responses, old_msgs, agent_msgs = receive_msgs (read_queue, org, old_msgs, agent_msgs)
         if responses:
-            if type == 'count':
-                agent_count += len(responses)
-            else:
+            agent_count += len(responses)
+            if type != 'count':
                 for response in responses:
                     print response
             # Everytime we receive a message we wait 5 more seconds
@@ -184,10 +205,11 @@ def run(type, schedule, cmd):
                print str(agent_count)
            else:
                print ''
+               print str(agent_count) + ' agent(s) responded'
            break
     signal.alarm(0)
     
-    signal.alarm(TIMEOUT)
+    signal.alarm(CONFIG['general']['timeout'])
     while ( True ):
         rm_org_msg = delete_org_message (write_queue, org)
         if rm_org_msg is True:
