@@ -27,18 +27,15 @@ def cli_func (message):
         except OSError:
            response =  'Failed to execute ' + cmd_str
 
-        print 'Our response is ' + response
         response={'type': type, 'output': response, 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
         return response
 
 def receive_msg (msgs, read_msgs ):
 
-    print 'Message received'
 
     for msg in msgs:
 
 	if msg.id in read_msgs:
-            print 'Old message received - skipping'
             continue
         else:
             read_msgs[msg.id] = msg.id
@@ -65,13 +62,16 @@ def receive_msg (msgs, read_msgs ):
  
         response=json.dumps(response)
         message = write_queue.new_message(response)
-        org = write_queue.write(message)
-        if org.id is None:
-            print 'Failed to write response message'
-            del read_msgs[msg.id]
-        else:
-            print 'Responded to message'
-            time.sleep(1)
+
+        # Write message 5 times to make sure receiver gets it
+        written='no'
+        for i in range(0, 3):
+            org = write_queue.write(message)
+            if org.id is None and written == 'no':
+                print 'Failed to write response message'
+                del read_msgs[msg.id]
+            else:
+                written='yes'
     
     return read_msgs
 
@@ -83,5 +83,4 @@ while True:
     msgs = read_queue.get_messages(num_messages=10, visibility_timeout=0)
 
     if (len(msgs) > 0):
-        print 'Found: ' + str(len(msgs))
         read_msgs = receive_msg ( msgs, read_msgs )

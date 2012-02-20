@@ -61,24 +61,19 @@ def master_timeout(signum, frame):
 # When timeout happens master_timeout definition executes raising an exception
 signal.signal(signal.SIGALRM, master_timeout)
 
-def receive_msgs (read_queue, org):
+def receive_msgs (read_queue, org, old_msgs, agent_msgs):
     num_of_replies=0
     response = None
     response_str = None
 
-    # When we've written to queue we read from agent response queue
-    rmsgs = {}
-    old_msgs={}
-   
     # Receive at least 1 message be fore continuing 
     rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=5)
 
     # For each message we check for duplicate, and if it is a response to our org message
     for rmsg in rmsgs:
-   
-        # Avoid duplicates 
+
+        # PUT FIRST Avoid duplicates 
         if rmsg.id in old_msgs:
-            print 'Message has already been received'
             continue
         else:
             old_msgs[rmsg.id] = rmsg.id
@@ -91,13 +86,23 @@ def receive_msgs (read_queue, org):
 
         # Is it a response to our original request
         if msg_id != org.id:
+            # Dont handle it again
+            old_msgs[rmsg.id] = rmsg.id
             continue
-   
-        # Delete the message as quickly as possible 
-        if not read_queue.delete_message(rmsg):
-            print 'Failed to delete reponse message'
 
-        response_str = ''
+        if hostname in agent_msgs:
+            old_msgs[rmsg.id] = rmsg.id
+            if not read_queue.delete_message(rmsg):
+                print 'Failed to delete reponse message'
+            continue
+        else:
+            agent_msgs[hostname] = hostname
+
+        if response_str is None:
+            response_str = ''
+        else:
+            # Add newline to reponse strings
+            response_str += '\n'
 
         if ( type == 'discovery' or type == 'ping' ):
             response_time = round( (time.time() - float(output)) * 1000, 2 )
@@ -110,8 +115,12 @@ def receive_msgs (read_queue, org):
         else:
             response_str += 'Unknown type response from agent ' + type
 
+        # We're done with the message - delete it
+        if not read_queue.delete_message(rmsg):
+            print 'Failed to delete reponse message'
+
     # Retrun all responses
-    return response_str
+    return (response_str, old_msgs, agent_msgs)
 
 def delete_org_message (write_queue, org):
     # Pick up written message and delete it
@@ -152,13 +161,17 @@ def run(type, schedule, cmd):
     signal.alarm(TIMEOUT)
     offset=int(time.time())
 
+    old_msgs={}
+    agent_msgs={}
+
     while ( True ):
-        responses = receive_msgs (read_queue, org)
+        responses, old_msgs, agent_msgs = receive_msgs (read_queue, org, old_msgs, agent_msgs)
         if responses is not None:
             print responses
             # Everytime we receive a message we wait 5 more seconds
             offset=int(time.time())
-        if (int(time.time()) - offset) >= 5:
+        if (int(time.time()) - offset) >= 2:
+           print ''
            break
     signal.alarm(0)
     
