@@ -17,17 +17,20 @@ conn = connect_to_region(REGION)
 read_queue = conn.get_queue(READ_QUEUE)
 write_queue = conn.get_queue(WRITE_QUEUE)
 
-def cli_func (message):
+def cli_func (message, msg):
 
         cmd_w_args = shlex.split(message['cmd'])
 
 	try:
-           response = subprocess.Popen(cmd_w_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).communicate()[0]
+           o = subprocess.Popen(cmd_w_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+           output = o.communicate()[0]
+           rc = o.poll()
 
-        except OSError:
-           response =  'Failed to execute ' + cmd_str
+        except OSError, e:
+            output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
+            rc = e.errno 
 
-        response={'type': type, 'output': response, 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
+        response={'type': message['type'], 'output': output, 'rc': rc, 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
         return response
 
 def receive_msg (msgs, read_msgs ):
@@ -51,14 +54,14 @@ def receive_msg (msgs, read_msgs ):
         ts = str(message['ts'])
   
         if type == 'discovery' or type== 'ping':
-            response={'type': type, 'output': ts, 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
+            response={'type': type, 'output': ts, 'rc': '0', 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
         elif type == 'count':
-            response={'type': type, 'output': 'yes master?', 'ts': time.time(), 'msg_id':msg.id, 'hostname':HOSTNAME};
+            response={'type': type, 'output': 'yes master?', 'rc': '0' , 'ts': time.time(), 'msg_id':msg.id, 'hostname':HOSTNAME};
         elif type == 'cli':
-            response = cli_func (message) 
+            response = cli_func (message, msg) 
         else:
            response =  'Unknown command ' + cmd_str
-           response={'type': type, 'output': response, 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
+           response={'type': type, 'output': response, 'rc': '0', 'ts':NOW, 'msg_id':msg.id, 'hostname':HOSTNAME};
  
         response=json.dumps(response)
         message = write_queue.new_message(response)

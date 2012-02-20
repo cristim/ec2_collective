@@ -63,7 +63,12 @@ signal.signal(signal.SIGALRM, master_timeout)
 
 def type_ping (output, hostname):
     response_time = round( (time.time() - float(output)) * 1000, 2 )
-    response_str = hostname + ' - response time: ' + str(response_time) + ' ms'
+    response_str = '>>>>>> ' + hostname + ' - response time: ' + str(response_time) + ' ms'
+
+    return response_str
+
+def type_cli (output, hostname, rc):
+    response_str = '>>>>>> ' + hostname + ' ('+str(rc)+')  :\n' +  str(output)
 
     return response_str
 
@@ -88,6 +93,7 @@ def receive_msgs (read_queue, org, old_msgs, agent_msgs):
         msg_id = str(response['msg_id'])
         type = str(response['type'])
         hostname = str(response['hostname'])
+        rc = response['rc']
 
         # Is it a response to our original request
         if msg_id != org.id:
@@ -108,7 +114,7 @@ def receive_msgs (read_queue, org, old_msgs, agent_msgs):
         elif type == 'count':
             responses.append(1)
         elif type == 'cli':
-            response_str +=  output
+            responses.append(type_cli(output, hostname, rc))
         else:
             responses.append('Unknown type response from agent ' + type)
 
