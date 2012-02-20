@@ -19,10 +19,8 @@ write_queue = conn.get_queue(WRITE_QUEUE)
 
 def cli_func (message, msg):
 
-        cmd_w_args = shlex.split(message['cmd'])
-
 	try:
-           o = subprocess.Popen(cmd_w_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+           o = subprocess.Popen(message['cmd'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
            output = o.communicate()[0]
            rc = o.poll()
 
