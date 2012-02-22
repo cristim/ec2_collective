@@ -1,6 +1,8 @@
 { 
     "general": {
-        "timeout": 15
+        "default_timeout": 5,
+        "clean_timeout": 15,
+        "timeout_next_response": 2
     },
     "aws": {
         "region": "eu-west-1",
