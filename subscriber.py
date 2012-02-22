@@ -212,7 +212,9 @@ def main ():
     get_config()
 
     sys.stdout.write('Daemon started with pid %d\n' % os.getpid( ) )
+    sys.stdout.flush()
     sys.stdout.write('Daemon stdout output\n')
+    sys.stdout.flush()
     sys.stderr.write('Daemon stderr output\n')
 
     # Get facts
