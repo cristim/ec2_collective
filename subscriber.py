@@ -56,7 +56,7 @@ def cli_func (message, msg):
             output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
             rc = e.errno 
 
-        response={'type': message['type'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
+        response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
         return response
 
 def receive_msg ( read_msgs, read_queue, yaml_facts ):
@@ -74,7 +74,7 @@ def receive_msg ( read_msgs, read_queue, yaml_facts ):
    
         message=json.loads(msg.get_body())
         cmd_str = str(message['cmd'])
-        type = str(message['type'])
+        func = str(message['func'])
         ts = str(message['ts'])
         wf = message['wf']
         wof = message['wof']
@@ -83,13 +83,13 @@ def receive_msg ( read_msgs, read_queue, yaml_facts ):
             read_msgs[msg.id] = msg.id
             continue
   
-        if type in [ 'discovery', 'ping', 'count' ]:
-            response={'type': type, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
-        elif type == 'cli':
+        if func in [ 'discovery', 'ping', 'count' ]:
+            response={'func': func, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
+        elif func == 'cli':
             response = cli_func (message, msg) 
         else:
            response =  'Unknown command ' + cmd_str
-           response={'type': type, 'output': response, 'rc': '0', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
+           response={'func': func, 'output': response, 'rc': '0', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
 
     return read_msgs, response
 
