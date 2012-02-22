@@ -31,24 +31,24 @@ def get_config():
 
 def usage():
     print >>sys.stderr, '    Usage:'
-    print >>sys.stderr, '    ' + sys.argv[0] + ' -t [ping|cli|script|s3] -c <command>'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -f [ping|cli|script|s3] -c <command>'
     sys.exit(1)
-
 
 def main():
 
+    # Get configuration
+    get_config()
+
     # Defaults
-    type=None
+    func='ping'
     schedule=time.time()
     cmd=None
     wf=None
     wof=None
+    timeout=CFG['general']['default_timeout']
 
-    if len(sys.argv) == 1:
-        print >>sys.stderr, 'Missing options'
-        usage()
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'ht:s:c:w:n:', ['help', 'type=', 'schedule=', 'command=', 'wf=', 'wof='])
+        opts, args = getopt.getopt(sys.argv[1:], 'hf:s:c:w:n:t:', ['help', 'func=', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout='])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -56,12 +56,12 @@ def main():
     for o, a in opts:
         if o in ('-h', '--help'):
             usage()
-        elif o in ('-t', '--type'):
+        elif o in ('-f', '--func'):
             if a not in ['ping', 'count', 'cli', 'script', 's3' ]:
-                print 'Uknown type: ' + str(a)
+                print 'Uknown function: ' + str(a)
                 usage()
             else:
-                type = a
+                func = a
         elif o in ('-s', '--schedule'):
             if a != 'now':
                 # We use the following ts MMDDHHMM
@@ -72,16 +72,18 @@ def main():
                 wf  = a
         elif o in ('-n', '--wof'):
                 wof  = a
+        elif o in ('-t', '--timeout'):
+                timeout  = a
 
-    if type is None:
-        print >>sys.stderr, 'Please provide type'
+    if func is None:
+        print >>sys.stderr, 'Please provide function'
         usage()
 
-    if type == 'cli' and cmd is None:
+    if func == 'cli' and cmd is None:
         print >>sys.stderr, 'Please provide command'
         usage()
 
-    run (type, schedule, cmd, wf, wof)
+    run (func, schedule, cmd, wf, wof, timeout)
 
 # Signal handler
 def master_timeout(signum, frame):
@@ -91,45 +93,56 @@ def master_timeout(signum, frame):
 # When timeout happens master_timeout definition executes raising an exception
 signal.signal(signal.SIGALRM, master_timeout)
 
-def type_ping_response (response):
-    hostname = str(response['hostname'])
-    output = str(response['output'])
+def func_ping_response (responses):
+    for response in responses:
+        hostname = str(responses[response]['hostname'])
+        output = str(responses[response]['output'])
 
-    response_time = round( (time.time() - float(output)) * 1000, 2 )
-    response_str = '>>>>>> ' + hostname + ' - response time: ' + str(response_time) + ' ms'
+        response_time = round( (time.time() - float(output)) * 1000, 2 )
+        response_str = '>>>>>> ' + hostname + ' - response time: ' + str(response_time) + ' ms'
 
-    return response_str
+        print response_str
 
-def type_cli_response (response):
-    hostname = str(response['hostname'])
-    output = str(response['output'])
-    rc = response['rc']
+def func_cli_response (responses):
+    for response in responses:
+        hostname = str(responses[response]['hostname'])
+        output = str(responses[response]['output'])
+        rc = str(responses[response]['rc'])
 
-    response_str = '>>>>>> ' + hostname + ' ('+str(rc)+'):\n' +  str(output)
+        response_str = '>>>>>> ' + hostname + ' exit code: ('+str(rc)+'):\n' +  str(output)
 
-    return response_str
+        print response_str
 
-def receive_responses (read_queue, org, type):
+def receive_responses (read_queue, org, func, timeout, display, discovered=None):
 
-    timeout=CFG['general']['default_timeout']
+    if func in [ 'ping','discovery','count']:
+        timeout=CFG['general']['ping_timeout']
+
     total_responses = {}
     old_msgs = {}
     agent_msgs = {}
 
     start_time=int(time.time())
     while ( True ):
-        responses, old_msgs, agents_msgs = pull_msgs (read_queue, org, type, old_msgs, agent_msgs)
+        responses, old_msgs, agents_msgs = pull_msgs (read_queue, org, func, old_msgs, agent_msgs)
         if len(responses) > 0:
             total_responses.update(responses)
-        if ( (int(time.time() - start_time) >= CFG['general']['timeout_next_response']  ) and 
-              len(total_responses)  > 0 ):
-                break
+
+            if func in [ 'ping','discovery','count'] and display == 'display':
+                func_ping_response(responses)
+
+            if func == 'cli' and display == 'display':
+                func_cli_response(responses)
+
+        if discovered is not None and len(total_responses) >= discovered:
+            break
+
         if (int(time.time()) - start_time) >= timeout:
             break
 
     return total_responses
 
-def pull_msgs (read_queue, org, org_type, old_msgs, agent_msgs):
+def pull_msgs (read_queue, org, org_func, old_msgs, agent_msgs):
 
     response = None
     responses = {}
@@ -148,7 +161,7 @@ def pull_msgs (read_queue, org, org_type, old_msgs, agent_msgs):
 
         response=json.loads(rmsg.get_body())
         msg_id = str(response['msg_id'])
-        type = str(response['type'])
+        func = str(response['func'])
         hostname = str(response['hostname'])
 
         # Is it a response to our original request
@@ -165,8 +178,8 @@ def pull_msgs (read_queue, org, org_type, old_msgs, agent_msgs):
         else:
             agent_msgs[hostname] = hostname
 
-        if ( org_type != type ):
-            print 'Type differs from original! (' + str(org_type) + ') != (' + str(type) + ')' ' - skipping'
+        if ( org_func != func ):
+            print 'Type differs from original! (' + str(org_func) + ') != (' + str(func) + ')' ' - skipping'
             old_msgs[rmsg.id] = rmsg.id
             continue
 
@@ -219,13 +232,10 @@ def write_msg (queue, message):
     else:
         return org
 
-def run(type, schedule, cmd, wf, wof):
+def run(func, schedule, cmd, wf, wof, timeout):
 
     responses={}
     ping_responses={}
-
-    # Get configuration
-    get_config()
 
     # Connect with key, secret and region
     conn = connect_to_region(CFG['aws']['region'])
@@ -233,43 +243,37 @@ def run(type, schedule, cmd, wf, wof):
     read_queue = conn.get_queue(CFG['aws']['read_queue'])
 
     # Construct message
-    message={'type':type,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof}
+    message={'func':func,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof}
 
     # 15 second initial timeout  
-    if type == 'count':
-        message['type'] =  type
+    if func == 'count':
+        message['func'] =  func
         org = write_msg(write_queue, message)
-        responses = receive_responses (read_queue, org, type)
+        responses = receive_responses (read_queue, org, func, timeout, 'display')
 
         delete_org_message (write_queue, org)
 
 	print str(len(responses))
 
-    if type == 'ping' or type == 'discovery':
-        message['type'] =  type
+    if func == 'ping' or func == 'discovery':
+        message['func'] =  func
         org = write_msg(write_queue, message)
-        responses = receive_responses (read_queue, org, type)
+        responses = receive_responses (read_queue, org, func, timeout, 'display')
 
-        for response in responses:
-            print type_ping_response(responses[response])
-
-    elif type == 'cli':
-        message['type'] = 'count'
+    elif func == 'cli':
+        message['func'] = 'count'
         org = write_msg(write_queue, message)
-        ping_responses = receive_responses (read_queue, org, 'count')
+        ping_responses = receive_responses (read_queue, org, 'count', timeout, 'nodisplay')
 
         delete_org_message (write_queue, org)
 
 	print 'We expect answers from: ' + str(len(ping_responses)) + ' agents'
 
-        message['type'] = 'cli'
+        message['func'] = 'cli'
         org = write_msg(write_queue, message)
-        responses = receive_responses (read_queue, org, type)
+        responses = receive_responses (read_queue, org, func, timeout, 'display', len(ping_responses))
 
         delete_org_message (write_queue, org)
-
-        for response in responses:
-            print type_cli_response(responses[response])
 
         if len(ping_responses) != len(responses):
             for hostname in ping_responses.keys():

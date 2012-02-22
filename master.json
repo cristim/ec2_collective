@@ -1,6 +1,7 @@
 { 
     "general": {
         "default_timeout": 5,
+        "ping_timeout": 2,
         "clean_timeout": 15,
         "timeout_next_response": 2
     },
