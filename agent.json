@@ -1,6 +1,7 @@
 { 
     "general": {
         "timeout": 15,
+        "sqs_poll_interval": 0.5,
         "yaml_facts": "True",
         "yaml_facts_path": "/mnt/facts/facts.yaml",
         "yaml_facts_refresh": 5

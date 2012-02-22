@@ -45,7 +45,7 @@ def main():
     cmd=None
     wf=None
     wof=None
-    timeout=CFG['general']['default_timeout']
+    timeout=int(CFG['general']['default_timeout'])
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], 'hf:s:c:w:n:t:', ['help', 'func=', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout='])
@@ -67,13 +67,17 @@ def main():
                 # We use the following ts MMDDHHMM
                 schedule=a
         elif o in ('-c', '--command'):
-                cmd  = a
+            cmd = a
         elif o in ('-w', '--wf'):
-                wf  = a
+            wf = a
         elif o in ('-n', '--wof'):
-                wof  = a
+            wof = a
         elif o in ('-t', '--timeout'):
-                timeout  = a
+            try:
+                timeout = int(a)
+            except:
+                print 'Timeout value is not an integer'
+                sys.exit(1)
 
     if func is None:
         print >>sys.stderr, 'Please provide function'
@@ -137,7 +141,7 @@ def receive_responses (read_queue, org, func, timeout, display, discovered=None)
         if discovered is not None and len(total_responses) >= discovered:
             break
 
-        if (int(time.time()) - start_time) >= timeout:
+        if ((int(time.time()) - start_time) >= timeout):
             break
 
     return total_responses
@@ -148,7 +152,7 @@ def pull_msgs (read_queue, org, org_func, old_msgs, agent_msgs):
     responses = {}
 
     # Receive at least 1 message be fore continuing 
-    rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=5)
+    rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=2)
 
     # For each message we check for duplicate, and if it is a response to our org message
     for rmsg in rmsgs:
@@ -192,32 +196,34 @@ def pull_msgs (read_queue, org, org_func, old_msgs, agent_msgs):
     # Retrun all responses
     return (responses, old_msgs, agent_msgs)
 
-def delete_org_message (write_queue, org):
+def delete_org_message (write_queue, msg_ids):
 
     signal.alarm(CFG['general']['clean_timeout'])
 
     while ( True ):
-        if pull_org_msgs (write_queue, org):
+        msg_ids = pull_org_msgs (write_queue, msg_ids)
+        if len(msg_ids) == 0:
             break
 
     signal.alarm(0)
 
-def pull_org_msgs(write_queue, org):
+def pull_org_msgs(write_queue, msg_ids):
 
     # Pick up written message and delete it
-    wmsgs = write_queue.get_messages(num_messages=10, visibility_timeout=10)
+    wmsgs = write_queue.get_messages(num_messages=10, visibility_timeout=2)
     
     for wmsg in wmsgs:
     
-        if wmsg.id == org.id:
+        if wmsg.id in msg_ids:
             if not write_queue.delete_message(wmsg):
                 print 'Failed to original reponse message'
-                return False
-            return True
+                continue
+            else:
+                del msg_ids[wmsg.id]
         else:
-            return False
+            continue
 
-    return False
+    return msg_ids
 
 def write_msg (queue, message):
 
@@ -236,6 +242,7 @@ def run(func, schedule, cmd, wf, wof, timeout):
 
     responses={}
     ping_responses={}
+    org_ids={}
 
     # Connect with key, secret and region
     conn = connect_to_region(CFG['aws']['region'])
@@ -249,36 +256,36 @@ def run(func, schedule, cmd, wf, wof, timeout):
     if func == 'count':
         message['func'] =  func
         org = write_msg(write_queue, message)
-        responses = receive_responses (read_queue, org, func, timeout, 'display')
-
-        delete_org_message (write_queue, org)
+        org_ids[org.id]=org.id
+        responses = receive_responses (read_queue, org, func, timeout, 'nodisplay')
 
 	print str(len(responses))
 
     if func == 'ping' or func == 'discovery':
         message['func'] =  func
         org = write_msg(write_queue, message)
+        org_ids[org.id]=org.id
         responses = receive_responses (read_queue, org, func, timeout, 'display')
 
     elif func == 'cli':
+        # Perform a ping to figure out how many replies to expect
         message['func'] = 'count'
         org = write_msg(write_queue, message)
+        org_ids[org.id]=org.id
         ping_responses = receive_responses (read_queue, org, 'count', timeout, 'nodisplay')
-
-        delete_org_message (write_queue, org)
-
-	print 'We expect answers from: ' + str(len(ping_responses)) + ' agents'
-
+        # Perform the actual command wait for all agents to return until timeout
         message['func'] = 'cli'
         org = write_msg(write_queue, message)
+        org_ids[org.id]=org.id
         responses = receive_responses (read_queue, org, func, timeout, 'display', len(ping_responses))
 
-        delete_org_message (write_queue, org)
+    # Delete original messags
+    delete_org_message (write_queue, org_ids)
 
-        if len(ping_responses) != len(responses):
-            for hostname in ping_responses.keys():
-                if not hostname in responses:
-                    print 'Timeout in response from: ' + hostname
+    if len(ping_responses) != len(responses):
+        for hostname in ping_responses.keys():
+            if not hostname in responses:
+                print 'Timeout in response from: ' + hostname
 
 
 if __name__ == "__main__":

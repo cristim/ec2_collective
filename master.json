@@ -1,9 +1,8 @@
 { 
     "general": {
-        "default_timeout": 5,
-        "ping_timeout": 2,
-        "clean_timeout": 15,
-        "timeout_next_response": 2
+        "default_timeout": 10,
+        "ping_timeout": 5,
+        "clean_timeout": 15
     },
     "aws": {
         "region": "eu-west-1",

@@ -128,10 +128,34 @@ def get_config():
         print 'Error in configuration file'
         sys.exit(1)
 
-def main():
-    # FORK
-
-    run()
+def daemonize (stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
+    try:
+        pid = os.fork( )
+        if pid > 0:
+            sys.exit(0) # Exit first parent.
+    except OSError, e:
+        sys.stderr.write("fork #1 failed: (%d) %s\n" % (e.errno, e.strerror))
+        sys.exit(1)
+    # Decouple from parent environment.
+    os.chdir("/")
+    os.umask(0)
+    os.setsid( )
+    # Perform second fork.
+    try:
+        pid = os.fork( )
+        if pid > 0:
+            sys.exit(0) # Exit second parent.
+    except OSError, e:
+        sys.stderr.write("fork #2 failed: (%d) %s\n" % (e.errno, e.strerror))
+        sys.exit(1)
+    # The process is now daemonized, redirect standard file descriptors.
+    for f in sys.stdout, sys.stderr: f.flush( )
+    si = file(stdin, 'r')
+    so = file(stdout, 'a+')
+    se = file(stderr, 'a+', 0)
+    os.dup2(si.fileno( ), sys.stdin.fileno( ))
+    os.dup2(so.fileno( ), sys.stdout.fileno( ))
+    os.dup2(se.fileno( ), sys.stderr.fileno( ))
 
 def fact_lookup (wf, wof, yaml_facts):
     # WOF
@@ -183,9 +207,13 @@ def fact_lookup (wf, wof, yaml_facts):
         # Facts set was not found - return True ( skip message )
         return True
 
-def run ():
+def main ():
 
     get_config()
+
+    sys.stdout.write('Daemon started with pid %d\n' % os.getpid( ) )
+    sys.stdout.write('Daemon stdout output\n')
+    sys.stderr.write('Daemon stderr output\n')
 
     # Get facts
     if CFG['general']['yaml_facts'] == 'True':
@@ -202,6 +230,8 @@ def run ():
     read_msgs={}
    
     start_time=int(time.time()) 
+    last_read=time.time()
+    response = False
     while ( True ):
 
         # See if we need to update facts file
@@ -209,9 +239,16 @@ def run ():
 	    start_time=time.time()
 	    yf_last_update, yaml_facts = update_yaml_facts(yf_last_update, CFG['general']['yaml_facts_path'], yaml_facts )
 
-        read_msgs, response = receive_msg ( read_msgs, read_queue, yaml_facts )
+        # Do not poll SQS too often, that would be too expensive
+        if (time.time() - last_read) > CFG['general']['sqs_poll_interval']:
+            read_msgs, response = receive_msg ( read_msgs, read_queue, yaml_facts )
+            last_read=time.time()
+        else:
+           time.sleep(0.5) 
+
         if response:
             write_msg (response, write_queue)
 
 if __name__ == "__main__":
+    daemonize('/dev/null','/tmp/daemon.log','/tmp/daemon.log')
     sys.exit(main())
