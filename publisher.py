@@ -41,12 +41,14 @@ def main():
     type=None
     schedule=time.time()
     cmd=None
+    wf=None
+    wof=None
 
     if len(sys.argv) == 1:
         print >>sys.stderr, 'Missing options'
         usage()
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'ht:s:c:w:n:', ['help', 'type', 'schedule', 'command', 'with', 'without'])
+        opts, args = getopt.getopt(sys.argv[1:], 'ht:s:c:w:n:', ['help', 'type=', 'schedule=', 'command=', 'wf=', 'wof='])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -66,10 +68,10 @@ def main():
                 schedule=a
         elif o in ('-c', '--command'):
                 cmd  = a
-        elif o in ('-w', '--with'):
-                with  = a
-        elif o in ('-n', '--without'):
-                without  = a
+        elif o in ('-w', '--wf'):
+                wf  = a
+        elif o in ('-n', '--wof'):
+                wof  = a
 
     if type is None:
         print >>sys.stderr, 'Please provide type'
@@ -79,7 +81,7 @@ def main():
         print >>sys.stderr, 'Please provide command'
         usage()
 
-    run (type, schedule, cmd)
+    run (type, schedule, cmd, wf, wof)
 
 # Signal handler
 def master_timeout(signum, frame):
@@ -170,7 +172,7 @@ def delete_org_message (write_queue, org):
     return False
 
 
-def run(type, schedule, cmd):
+def run(type, schedule, cmd, wf, wof):
 
     # Get configuration
     get_config()
@@ -180,9 +182,9 @@ def run(type, schedule, cmd):
     write_queue = conn.get_queue(CONFIG['aws']['write_queue'])
     read_queue = conn.get_queue(CONFIG['aws']['read_queue'])
 
-    message={'type': type, 'schedule':schedule, 'cmd':cmd, 'ts':time.time()};
+    message={'type': type, 'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof};
     message_json=json.dumps(message)
-    
+
     # Write a messages
     message = write_queue.new_message(message_json)
     
