@@ -78,7 +78,14 @@ def receive_msg ( read_msgs, read_queue, yaml_facts ):
         ts = str(message['ts'])
         wf = message['wf']
         wof = message['wof']
+        batch_msg_id = message['batch_msg_id']
 
+        # We send multiple duplicate messages - lets avoid handling all of them
+	if batch_msg_id in read_msgs:
+            continue
+        else:
+            read_msgs[batch_msg_id] = batch_msg_id
+  
 	if fact_lookup(wf, wof, yaml_facts):
             read_msgs[msg.id] = msg.id
             continue
@@ -212,9 +219,7 @@ def main ():
     get_config()
 
     sys.stdout.write('Daemon started with pid %d\n' % os.getpid( ) )
-    sys.stdout.flush()
     sys.stdout.write('Daemon stdout output\n')
-    sys.stdout.flush()
     sys.stderr.write('Daemon stderr output\n')
 
     # Get facts

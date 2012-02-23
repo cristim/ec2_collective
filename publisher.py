@@ -8,6 +8,8 @@ import signal
 import sys
 import getopt
 import os
+import random
+import string
 
 # CFG FILE
 CFILE='./master.json'
@@ -117,7 +119,7 @@ def func_cli_response (responses):
 
         print response_str
 
-def receive_responses (read_queue, org, func, timeout, display, discovered=None):
+def receive_responses (read_queue, org_ids, func, timeout, display, discovered=None):
 
     if func in [ 'ping','discovery','count']:
         timeout=CFG['general']['ping_timeout']
@@ -128,7 +130,7 @@ def receive_responses (read_queue, org, func, timeout, display, discovered=None)
 
     start_time=int(time.time())
     while ( True ):
-        responses, old_msgs, agents_msgs = pull_msgs (read_queue, org, func, old_msgs, agent_msgs)
+        responses, old_msgs, agents_msgs = pull_msgs (read_queue, org_ids, func, old_msgs, agent_msgs)
         if len(responses) > 0:
             total_responses.update(responses)
 
@@ -146,7 +148,7 @@ def receive_responses (read_queue, org, func, timeout, display, discovered=None)
 
     return total_responses
 
-def pull_msgs (read_queue, org, org_func, old_msgs, agent_msgs):
+def pull_msgs (read_queue, org_ids, org_func, old_msgs, agent_msgs):
 
     response = None
     responses = {}
@@ -169,7 +171,7 @@ def pull_msgs (read_queue, org, org_func, old_msgs, agent_msgs):
         hostname = str(response['hostname'])
 
         # Is it a response to our original request
-        if msg_id != org.id:
+        if msg_id not in org_ids:
             # Dont handle it again
             old_msgs[rmsg.id] = rmsg.id
             continue
@@ -225,18 +227,35 @@ def pull_org_msgs(write_queue, msg_ids):
 
     return msg_ids
 
-def write_msg (queue, message):
+def id_generator(size=10, chars=string.ascii_uppercase + string.digits):
+    return ''.join(random.choice(chars) for x in range(size))
+
+def dict_to_sqs_obj(message, write_queue):
 
     message_json=json.dumps(message)
+    message = write_queue.new_message(message_json)
 
-    message = queue.new_message(message_json)
+    return message
 
-    org = queue.write(message)
-    if org.id is None:
-        print 'Failed to write command to queue'
-        sys.exit(main())
+def write_msg (write_queue, dict_message):
+
+    message=dict_to_sqs_obj(dict_message, write_queue)
+    org_ids={}
+
+    written=False
+    for i in range(0, 3):
+        org = write_queue.write(message)
+        if org.id is None:
+            print 'Failed to write 1 command message'
+        else:
+            written=True
+            org_ids[org.id] = org.id
+
+    if written is True:
+        return org_ids
     else:
-        return org
+        print 'Failed to write any command messages'
+        sys.exit(1)
 
 def run(func, schedule, cmd, wf, wof, timeout):
 
@@ -250,34 +269,33 @@ def run(func, schedule, cmd, wf, wof, timeout):
     read_queue = conn.get_queue(CFG['aws']['read_queue'])
 
     # Construct message
-    message={'func':func,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof}
+    message={'func':func,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
 
     # 15 second initial timeout  
     if func == 'count':
         message['func'] =  func
-        org = write_msg(write_queue, message)
-        org_ids[org.id]=org.id
-        responses = receive_responses (read_queue, org, func, timeout, 'nodisplay')
+        org_ids.update (write_msg(write_queue, message))
 
+        responses = receive_responses (read_queue, org_ids, func, timeout, 'nodisplay')
 	print str(len(responses))
 
     if func == 'ping' or func == 'discovery':
         message['func'] =  func
-        org = write_msg(write_queue, message)
-        org_ids[org.id]=org.id
-        responses = receive_responses (read_queue, org, func, timeout, 'display')
+        org_ids.update (write_msg(write_queue, message))
+        responses = receive_responses (read_queue, org_ids, func, timeout, 'display')
 
     elif func == 'cli':
         # Perform a ping to figure out how many replies to expect
         message['func'] = 'count'
-        org = write_msg(write_queue, message)
-        org_ids[org.id]=org.id
-        ping_responses = receive_responses (read_queue, org, 'count', timeout, 'nodisplay')
+        count_ids =  (write_msg(write_queue, message))
+        org_ids.update (count_ids)
+        ping_responses = receive_responses (read_queue, count_ids, 'count', timeout, 'nodisplay')
         # Perform the actual command wait for all agents to return until timeout
         message['func'] = 'cli'
-        org = write_msg(write_queue, message)
-        org_ids[org.id]=org.id
-        responses = receive_responses (read_queue, org, func, timeout, 'display', len(ping_responses))
+        message['batch_msg_id'] = id_generator()
+        cli_ids =  (write_msg(write_queue, message))
+        org_ids.update (cli_ids)
+        responses = receive_responses (read_queue, cli_ids, func, timeout, 'display', len(ping_responses))
 
     # Delete original messags
     delete_org_message (write_queue, org_ids)
