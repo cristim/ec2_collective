@@ -2,6 +2,7 @@
 # coding: utf-8
 
 from boto.sqs import connect_to_region
+from boto.exception import SQSError
 import simplejson as json
 import time
 import signal
@@ -248,7 +249,12 @@ def write_msg (write_queue, dict_message):
 
     written=False
     for i in range(0, 3):
-        org = write_queue.write(message)
+        try:
+            org = write_queue.write(message)
+        except:
+            print 'Failed to write command message'
+            sys.exit(1)
+
         if org.id is None:
             print 'Failed to write 1 command message'
         else:
