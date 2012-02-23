@@ -22,7 +22,7 @@ def get_config():
     try:
         fp = open(CFILE, 'r')
     except IOError, e:
-        print ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
+        print ('Failed to open ' + CFILE + ' (%d) %s \n' % (e.errno, e.strerror))
     
     try:
         global CFG
@@ -89,6 +89,10 @@ def main():
         print >>sys.stderr, 'Please provide command'
         usage()
 
+    if func == 'script' and cmd is None:
+        print >>sys.stderr, 'Please provide path to script with -c|--command'
+        usage()
+
     run (func, schedule, cmd, wf, wof, timeout)
 
 # Signal handler
@@ -105,7 +109,7 @@ def func_ping_response (responses):
         output = str(responses[response]['output'])
 
         response_time = round( (time.time() - float(output)) * 1000, 2 )
-        response_str = '>>>>>> ' + hostname + ' - response time: ' + str(response_time) + ' ms'
+        response_str = hostname + ' time=' + str(response_time) + ' ms'
 
         print response_str
 
@@ -137,7 +141,7 @@ def receive_responses (read_queue, org_ids, func, timeout, display, discovered=N
             if func in [ 'ping','discovery','count'] and display == 'display':
                 func_ping_response(responses)
 
-            if func == 'cli' and display == 'display':
+            if func in ['cli', 'script' ] and display == 'display':
                 func_cli_response(responses)
 
         if discovered is not None and len(total_responses) >= discovered:
@@ -257,7 +261,22 @@ def write_msg (write_queue, dict_message):
         print 'Failed to write any command messages'
         sys.exit(1)
 
+def inhale_script (script_file):
+    if not os.path.exists(script_file):
+        print script_file + ' file does not exist'
+        sys.exit(1)
+
+    f = open(script_file, 'r')
+
+    return f.read()
+
 def run(func, schedule, cmd, wf, wof, timeout):
+
+    if func == 'script':
+        payload = inhale_script(cmd)
+        cmd = os.path.basename(cmd)
+    else:
+        payload = None
 
     responses={}
     ping_responses={}
@@ -269,22 +288,20 @@ def run(func, schedule, cmd, wf, wof, timeout):
     read_queue = conn.get_queue(CFG['aws']['read_queue'])
 
     # Construct message
-    message={'func':func,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
+    message={'func':func,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator(), 'payload':payload}
 
     # 15 second initial timeout  
     if func == 'count':
-        message['func'] =  func
         org_ids.update (write_msg(write_queue, message))
 
         responses = receive_responses (read_queue, org_ids, func, timeout, 'nodisplay')
 	print str(len(responses))
 
     if func == 'ping' or func == 'discovery':
-        message['func'] =  func
         org_ids.update (write_msg(write_queue, message))
         responses = receive_responses (read_queue, org_ids, func, timeout, 'display')
 
-    elif func == 'cli':
+    if func == 'cli':
         # Perform a ping to figure out how many replies to expect
         message['func'] = 'count'
         count_ids =  (write_msg(write_queue, message))
@@ -292,6 +309,19 @@ def run(func, schedule, cmd, wf, wof, timeout):
         ping_responses = receive_responses (read_queue, count_ids, 'count', timeout, 'nodisplay')
         # Perform the actual command wait for all agents to return until timeout
         message['func'] = 'cli'
+        message['batch_msg_id'] = id_generator()
+        cli_ids =  (write_msg(write_queue, message))
+        org_ids.update (cli_ids)
+        responses = receive_responses (read_queue, cli_ids, func, timeout, 'display', len(ping_responses))
+
+    if func == 'script':
+        # Perform a ping to figure out how many replies to expect
+        message['func'] = 'count'
+        count_ids =  (write_msg(write_queue, message))
+        org_ids.update (count_ids)
+        ping_responses = receive_responses (read_queue, count_ids, 'count', timeout, 'nodisplay')
+        # Perform the actual command wait for all agents to return until timeout
+        message['func'] = 'script'
         message['batch_msg_id'] = id_generator()
         cli_ids =  (write_msg(write_queue, message))
         org_ids.update (cli_ids)

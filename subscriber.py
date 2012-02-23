@@ -11,6 +11,7 @@ import time
 import sys
 import yaml
 import os
+import stat
 
 CFILE='./agent.json'
 
@@ -59,6 +60,44 @@ def cli_func (message, msg):
         response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
         return response
 
+def write_to_file (payload, identifier):
+    script_file = '/tmp/' + identifier
+
+    try:
+        f = open (script_file, 'w')
+    except IOError, e:
+        print ('Failed to open ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
+        return False
+
+    try:
+        f.write (payload)
+    except IOError, e:
+        print ('Failed to write payload ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
+        return False
+
+    os.chmod(script_file, stat.S_IRWXU)
+
+    return True
+    
+
+def script_func (message, msg):
+
+    if not write_to_file(message['payload'], message['batch_msg_id']) :
+        response={'func': message['func'], 'output': 'Failed to write script file', 'rc': '255', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
+        return response
+
+    try:
+        o = subprocess.Popen('/tmp/' + message['batch_msg_id'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        output = o.communicate()[0]
+        rc = o.poll()
+
+    except OSError, e:
+        output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
+        rc = e.errno 
+
+    response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
+    return response
+
 def receive_msg ( read_msgs, read_queue, yaml_facts ):
 
     response = None
@@ -94,6 +133,8 @@ def receive_msg ( read_msgs, read_queue, yaml_facts ):
             response={'func': func, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
         elif func == 'cli':
             response = cli_func (message, msg) 
+        elif func == 'script':
+            response = script_func (message, msg) 
         else:
            response =  'Unknown command ' + cmd_str
            response={'func': func, 'output': response, 'rc': '0', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
@@ -257,5 +298,5 @@ def main ():
             write_msg (response, write_queue)
 
 if __name__ == "__main__":
-    daemonize('/dev/null','/tmp/daemon.log','/tmp/daemon.log')
+    #daemonize('/dev/null','/tmp/daemon.log','/tmp/daemon.log')
     sys.exit(main())
