@@ -1,5 +1,6 @@
 { 
     "general": {
+        "log_level": "DEBUG",
         "timeout": 15,
         "sqs_poll_interval": 0.5,
         "yaml_facts": "True",

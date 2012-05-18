@@ -3,23 +3,88 @@
 
 from boto.sqs.connection import SQSConnection
 from boto.sqs.regioninfo import SQSRegionInfo
+from multiprocessing import Process, Queue, active_children
+from Queue import Empty
 from boto.sqs import connect_to_region
 from socket import gethostname
 import simplejson as json
 import subprocess, time
+import signal
 import time
 import sys
 import yaml
 import os
 import stat
+import getopt
+import logging
 
-CFILE='./agent.json'
+
+CFILE='/home/adh/ec2_collective/agent.json'
+
+def terminate_process(signum, frame):
+    logging.debug ('Process asked to exit...')
+    sys.exit(1)
+
+signal.signal(signal.SIGTERM, terminate_process)
+
+def usage():
+    print >>sys.stderr, '    Usage:'
+    print >>sys.stderr, '    ' + sys.argv[0] + '\n\n -f, --foreground\trun script in foreground\n -h, --help\tthis help\n -l, --logfile\tlogfile path ( /var/log/ec2_collective.log )\n -p, --pidfile\tpath to pidfile (/var/run/ec2_collectived.pid)'
+    sys.exit(1)
+
+def set_logging():
+
+    logformat = '%(asctime)s [%(levelname)s] %(message)s'
+    logging.basicConfig(level=logging.INFO, format=logformat)
+    logging.getLogger('boto').setLevel(logging.CRITICAL)
+
+    if CFG['general']['log_level'] not in ['INFO', 'WARN', 'ERROR', 'DEBUG', 'CRITICAL' ]:
+        print >>sys.stderr, 'Log level: ' + CFG['general']['log_level'] + ' is invalid'
+
+    if CFG['general']['log_level'] == 'INFO':
+        logging.getLogger().setLevel(logging.INFO)
+    elif CFG['general']['log_level'] == 'WARN':
+        logging.getLogger().setLevel(logging.WARNING)
+    elif CFG['general']['log_level'] == 'ERROR':
+        logging.getLogger().setLevel(logging.ERROR)
+    elif CFG['general']['log_level'] == 'DEBUG':
+        logging.getLogger().setLevel(logging.DEBUG)
+    elif CFG['general']['log_level'] == 'CRITICAL':
+        logging.getLogger().setLevel(logging.CRITICAL)
+
+def initialize():
+
+    get_config()
+    set_logging()
+
+    foreground=False
+    logfile='/var/log/ec2_collective.log'
+    pidfile='/var/run/ec2_collectived.pid'
+
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'hfl:p:', ['foreground', 'help', 'logfile', 'pidfile'])
+
+    except getopt.GetoptError, err:
+        print >>sys.stderr, str(err) 
+        return 1
+
+    for o, a in opts:
+        if o in ('-h', '--help'):
+            usage()
+        elif o in ('-f', '--foreground'):
+            foreground=True
+        elif o in ('-l', '--logfile'):
+            logfile=a
+        elif o in ('-p', '--pidfile'):
+            pidfile=a
+
+    return (foreground, logfile, pidfile)
 
 def get_yaml_facts (yaml_file):
     dataMap = {}
 
     if not os.path.exists(yaml_file):
-        print yaml_file + ' file does not exist'
+        logging.error( yaml_file + ' file does not exist')
         sys.exit(1)
 
     stat = os.stat(yaml_file)
@@ -46,9 +111,10 @@ def update_yaml_facts (yf_last_update, yaml_file, yaml_facts):
     else:
 	return (fileage, yaml_facts)
 
-def cli_func (message, msg):
+def cli_func (message):
 
 	try:
+           logging.debug ('Performing: ' + str(message['cmd']))
            o = subprocess.Popen(message['cmd'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
            output = o.communicate()[0]
            rc = o.poll()
@@ -57,7 +123,7 @@ def cli_func (message, msg):
             output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
             rc = e.errno 
 
-        response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
+        response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
         return response
 
 def write_to_file (payload, identifier):
@@ -65,14 +131,9 @@ def write_to_file (payload, identifier):
 
     try:
         f = open (script_file, 'w')
-    except IOError, e:
-        print ('Failed to open ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
-        return False
-
-    try:
         f.write (payload)
     except IOError, e:
-        print ('Failed to write payload ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
+        logging.error ('Failed to write paytload to ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
         return False
 
     os.chmod(script_file, stat.S_IRWXU)
@@ -80,13 +141,14 @@ def write_to_file (payload, identifier):
     return True
     
 
-def script_func (message, msg):
+def script_func (message):
 
     if not write_to_file(message['payload'], message['batch_msg_id']) :
-        response={'func': message['func'], 'output': 'Failed to write script file', 'rc': '255', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
+        response={'func': message['func'], 'output': 'Failed to write script file', 'rc': '255', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
         return response
 
     try:
+        logging.debug ('Performing: sript execution')
         o = subprocess.Popen('/tmp/' + message['batch_msg_id'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         output = o.communicate()[0]
         rc = o.poll()
@@ -95,12 +157,12 @@ def script_func (message, msg):
         output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
         rc = e.errno 
 
-    response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
+    response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
     return response
 
-def receive_msg ( read_msgs, read_queue, yaml_facts ):
+def receive_sql_msg ( read_msgs, read_queue, yaml_facts ):
 
-    response = None
+    new_msgs = []
 
     msgs = read_queue.get_messages(num_messages=10, visibility_timeout=0)
 
@@ -112,12 +174,10 @@ def receive_msg ( read_msgs, read_queue, yaml_facts ):
             read_msgs[msg.id] = msg.id
    
         message=json.loads(msg.get_body())
-        cmd_str = str(message['cmd'])
-        func = str(message['func'])
-        ts = str(message['ts'])
+        batch_msg_id = message['batch_msg_id']
         wf = message['wf']
         wof = message['wof']
-        batch_msg_id = message['batch_msg_id']
+        message['orgid'] = msg.id
 
         # We send multiple duplicate messages - lets avoid handling all of them
 	if batch_msg_id in read_msgs:
@@ -128,20 +188,43 @@ def receive_msg ( read_msgs, read_queue, yaml_facts ):
 	if fact_lookup(wf, wof, yaml_facts):
             read_msgs[msg.id] = msg.id
             continue
+
+        logging.debug('New valid SQS message received')
+	new_msgs.append(message)
+
+    return read_msgs, new_msgs
+
+def process_msg ( message ):
+
+    cmd_str = str(message['cmd'])
+    func = str(message['func'])
+    ts = str(message['ts'])
   
-        if func in [ 'discovery', 'ping', 'count' ]:
-            response={'func': func, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
-        elif func == 'cli':
-            response = cli_func (message, msg) 
-        elif func == 'script':
-            response = script_func (message, msg) 
-        else:
-           response =  'Unknown command ' + cmd_str
-           response={'func': func, 'output': response, 'rc': '0', 'ts':time.time(), 'msg_id':msg.id, 'hostname':gethostname()};
+    if func in [ 'discovery', 'ping', 'count' ]:
+        logging.debug("Performing ping reply")
+        response={'func': func, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+    elif func == 'cli':
+        logging.debug("Performing command execution")
+        response = cli_func(message)
+    elif func == 'script':
+        logging.debug("Performing script execution")
+        response = script_func (message) 
+    else:
+        response =  'Unknown command ' + cmd_str
+        response={'func': func, 'output': response, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
 
-    return read_msgs, response
+    return response
 
-def write_msg (response, write_queue):
+def receive_queue_msg ( task_queue, done_queue ):
+
+    for message in iter(task_queue.get, 'STOP'):
+        logging.debug('Task read from task queue')
+        response = process_msg(message)
+        done_queue.put(response)
+
+    logging.debug('Worker received STOP signal - terminating')
+
+def write_sqs_msg (response, write_queue):
  
     response=json.dumps(response)
     message = write_queue.new_message(response)
@@ -151,9 +234,10 @@ def write_msg (response, write_queue):
     for i in range(0, 3):
         org = write_queue.write(message)
         if org.id is None and written is False:
-            print 'Failed to write response message'
+            logging.error ('Failed to write response message to SQS')
             del read_msgs[msg.id]
         else:
+            logging.debug('Wrote response to SQS')
             written=True
 
     return written
@@ -161,22 +245,27 @@ def write_msg (response, write_queue):
 def get_config():
     # CFILE 
     if not os.path.exists(CFILE):
-        print CFILE + ' file does not exist'
+        logging.error ( CFILE + ' file does not exist')
         sys.exit(1)
     
     try:
         f = open(CFILE, 'r')
     except IOError, e:
-        print ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
+        logging.error ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
     
     try:
         global CFG
         CFG=json.load(f)
     except (TypeError, ValueError), e:
-        print 'Error in configuration file'
+        logging.error ('Error in configuration file')
         sys.exit(1)
 
-def daemonize (stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
+def daemonize (foreground, pidfile, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null' ):
+
+    if foreground is True:
+        logging.info ('Running in the foreground')
+        return
+
     try:
         pid = os.fork( )
         if pid > 0:
@@ -204,6 +293,18 @@ def daemonize (stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
     os.dup2(si.fileno( ), sys.stdin.fileno( ))
     os.dup2(so.fileno( ), sys.stdout.fileno( ))
     os.dup2(se.fileno( ), sys.stderr.fileno( ))
+
+    try:
+        f = open (pidfile, 'w')
+        f.write (str(os.getpid()))
+    except IOError, e:
+        sys.stderr.write("Failed to write pid to pidfile (%s): (%d) %s\n" % (pidfile, e.errno, e.strerror))
+        sys.exit(1)
+
+    sys.stdout.write('Daemon started with pid %d\n' % os.getpid( ) )
+
+    sys.stderr.flush()
+    sys.stdout.flush()
 
 def fact_lookup (wf, wof, yaml_facts):
     # WOF
@@ -257,12 +358,6 @@ def fact_lookup (wf, wof, yaml_facts):
 
 def main ():
 
-    get_config()
-
-    sys.stdout.write('Daemon started with pid %d\n' % os.getpid( ) )
-    sys.stdout.write('Daemon stdout output\n')
-    sys.stderr.write('Daemon stderr output\n')
-
     # Get facts
     if CFG['general']['yaml_facts'] == 'True':
         yf_last_update, yaml_facts = get_yaml_facts(CFG['general']['yaml_facts_path'])
@@ -273,30 +368,61 @@ def main ():
     conn = connect_to_region(CFG['aws']['region'])
     read_queue = conn.get_queue(CFG['aws']['read_queue'])
     write_queue = conn.get_queue(CFG['aws']['write_queue'])
+
+    # Create queues
+    task_queue = Queue()
+    done_queue = Queue()
     
     # Read from master
     read_msgs={}
    
     start_time=int(time.time()) 
     last_read=time.time()
-    response = False
+    new_msgs = False
     while ( True ):
 
         # See if we need to update facts file
         if (int(time.time()) - start_time ) > CFG['general']['yaml_facts_refresh']:
+            logging.debug('Reloading yaml facts')
 	    start_time=time.time()
 	    yf_last_update, yaml_facts = update_yaml_facts(yf_last_update, CFG['general']['yaml_facts_path'], yaml_facts )
 
         # Do not poll SQS too often, that would be too expensive
         if (time.time() - last_read) > CFG['general']['sqs_poll_interval']:
-            read_msgs, response = receive_msg ( read_msgs, read_queue, yaml_facts )
+            logging.debug('Looking for new messages on SQS')
+            read_msgs, new_msgs = receive_sql_msg ( read_msgs, read_queue, yaml_facts )
+
+            # If any messages are received we put the data on the task queue
+            if new_msgs:
+                for new_msg in new_msgs:
+                    logging.debug('Putting SQS message on task queue')
+                    task_queue.put(new_msg)
+                    logging.debug('Forking worker')
+                    Process(target=receive_queue_msg, args=(task_queue, done_queue)).start()
+
             last_read=time.time()
         else:
            time.sleep(0.5) 
 
-        if response:
-            write_msg (response, write_queue)
+        #if new_msgs:
+        try:
+            response = done_queue.get(False)
+            task_queue.put('STOP')
+            logging.debug('Response read from done queue')
+            write_sqs_msg (response, write_queue)
+        except Empty:
+            logging.debug('Done queue is empty')
+
+        # Join finished children
+        running_children = len(active_children())
+        logging.debug(str(running_children) + ' active children')
 
 if __name__ == "__main__":
-    #daemonize('/dev/null','/tmp/daemon.log','/tmp/daemon.log')
-    sys.exit(main())
+
+    (foreground, logfile, pidfile)=initialize()
+    daemonize(foreground, pidfile,'/dev/null', logfile, logfile)
+    try:
+        sys.exit(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info('Dutifully exiting...')
+        sys.exit(0)
