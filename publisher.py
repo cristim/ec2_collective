@@ -35,6 +35,7 @@ def get_config():
 def usage():
     print >>sys.stderr, '    Usage:'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -f [ping|cli|script|s3] -c <command>'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -f [ping|cli|script|s3] -c <command> -i\tIgnore i.e. fire and forget mode'
     sys.exit(1)
 
 def main():
@@ -49,9 +50,11 @@ def main():
     wf=None
     wof=None
     timeout=int(CFG['general']['default_timeout'])
+    timeout_set = False
+    ignore=False
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'hf:s:c:w:n:t:', ['help', 'func=', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout='])
+        opts, args = getopt.getopt(sys.argv[1:], 'hf:s:c:w:n:t:i', ['help', 'func=', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore'])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -78,9 +81,15 @@ def main():
         elif o in ('-t', '--timeout'):
             try:
                 timeout = int(a)
+                timeout_set = True
             except:
                 print 'Timeout value is not an integer'
                 sys.exit(1)
+        elif o in ('-i', '--ignore'):
+            ignore = True
+            if timeout_set is False:
+                # We allow a 5 second response time unless something else is set
+                timeout = 5
 
     if func is None:
         print >>sys.stderr, 'Please provide function'
@@ -94,7 +103,7 @@ def main():
         print >>sys.stderr, 'Please provide path to script with -c|--command'
         usage()
 
-    run (func, schedule, cmd, wf, wof, timeout)
+    run (func, schedule, cmd, wf, wof, timeout, ignore)
 
 # Signal handler
 def master_timeout(signum, frame):
@@ -276,7 +285,7 @@ def inhale_script (script_file):
 
     return f.read()
 
-def run(func, schedule, cmd, wf, wof, timeout):
+def run(func, schedule, cmd, wf, wof, timeout, ignore):
 
     if func == 'script':
         payload = inhale_script(cmd)
@@ -287,6 +296,7 @@ def run(func, schedule, cmd, wf, wof, timeout):
     responses={}
     ping_responses={}
     org_ids={}
+    discovered=None
 
     # Connect with key, secret and region
     conn = connect_to_region(CFG['aws']['region'])
@@ -308,35 +318,49 @@ def run(func, schedule, cmd, wf, wof, timeout):
         responses = receive_responses (read_queue, org_ids, func, timeout, 'display')
 
     if func == 'cli':
-        # Perform a ping to figure out how many replies to expect
-        message['func'] = 'count'
-        count_ids =  (write_msg(write_queue, message))
-        org_ids.update (count_ids)
-        ping_responses = receive_responses (read_queue, count_ids, 'count', timeout, 'nodisplay')
+
+        # If ignore is True then we fire and forget
+        if ignore is False:
+            # Perform a ping to figure out how many replies to expect
+            message['func'] = 'count'
+            count_ids =  (write_msg(write_queue, message))
+            org_ids.update (count_ids)
+            ping_responses = receive_responses (read_queue, count_ids, 'count', timeout, 'nodisplay')
+            discovered=len(ping_responses)
+        else:
+            discovered=None
+            
         # Perform the actual command wait for all agents to return until timeout
         message['func'] = 'cli'
         message['batch_msg_id'] = id_generator()
         cli_ids =  (write_msg(write_queue, message))
         org_ids.update (cli_ids)
-        responses = receive_responses (read_queue, cli_ids, func, timeout, 'display', len(ping_responses))
+        responses = receive_responses (read_queue, cli_ids, func, timeout, 'display', discovered)
 
     if func == 'script':
-        # Perform a ping to figure out how many replies to expect
-        message['func'] = 'count'
-        count_ids =  (write_msg(write_queue, message))
-        org_ids.update (count_ids)
-        ping_responses = receive_responses (read_queue, count_ids, 'count', timeout, 'nodisplay')
+
+        # If ignore is True then we fire and forget
+        if ignore is False:
+            # Perform a ping to figure out how many replies to expect
+            message['func'] = 'count'
+            count_ids =  (write_msg(write_queue, message))
+            org_ids.update (count_ids)
+            ping_responses = receive_responses (read_queue, count_ids, 'count', timeout, 'nodisplay')
+            discovered=len(ping_responses)
+        else:
+            discovered=None
+
         # Perform the actual command wait for all agents to return until timeout
         message['func'] = 'script'
         message['batch_msg_id'] = id_generator()
         cli_ids =  (write_msg(write_queue, message))
         org_ids.update (cli_ids)
-        responses = receive_responses (read_queue, cli_ids, func, timeout, 'display', len(ping_responses))
+        responses = receive_responses (read_queue, cli_ids, func, timeout, 'display', discovered)
 
     # Delete original messags
     delete_org_message (write_queue, org_ids)
 
-    if len(ping_responses) != len(responses):
+    if ignore is False and len(ping_responses) != len(responses):
         for hostname in ping_responses.keys():
             if not hostname in responses:
                 print 'Timeout in response from: ' + hostname
