@@ -19,7 +19,7 @@ import getopt
 import logging
 
 
-CFILE='/home/adh/ec2_collective/agent.json'
+CFILE='/etc/ec2_collective/ec2-cagent.json'
 
 def terminate_process(signum, frame):
     logging.debug ('Process asked to exit...')
@@ -29,7 +29,7 @@ signal.signal(signal.SIGTERM, terminate_process)
 
 def usage():
     print >>sys.stderr, '    Usage:'
-    print >>sys.stderr, '    ' + sys.argv[0] + '\n\n -f, --foreground\trun script in foreground\n -h, --help\tthis help\n -l, --logfile\tlogfile path ( /var/log/ec2_collective.log )\n -p, --pidfile\tpath to pidfile (/var/run/ec2_collectived.pid)'
+    print >>sys.stderr, '    ' + sys.argv[0] + '\n\n -f, --foreground\trun script in foreground\n -h, --help\tthis help\n -l, --logfile\tlogfile path ( /var/log/ec2-cagent.log )\n -p, --pidfile\tpath to pidfile (/var/run/ec2-cagent.pid)'
     sys.exit(1)
 
 def set_logging():
@@ -58,8 +58,8 @@ def initialize():
     set_logging()
 
     foreground=False
-    logfile='/var/log/ec2_collective.log'
-    pidfile='/var/run/ec2_collectived.pid'
+    logfile='/var/log/ec2-cagent.log'
+    pidfile='/var/run/ec2-cagent.pid'
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], 'hfl:p:', ['foreground', 'help', 'logfile', 'pidfile'])

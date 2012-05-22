@@ -13,7 +13,7 @@ import random
 import string
 
 # CFG FILE
-CFILE='./master.json'
+CFILE='/etc/ec2_collective/ec2-cmaster.json'
 
 def get_config():
     if not os.path.exists(CFILE):
