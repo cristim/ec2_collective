@@ -25,14 +25,16 @@ if ! [ -x $EC2_COLLECTIVE ] ; then
 fi
 
 if [ -s $PIDFILE ]; then
-	if ps -p $(cat $PIDFILE) > /dev/null 2>&1 ; then
+	PID=$(cat $PIDFILE)
+	if ps -p $PID > /dev/null 2>&1 ; then
 		IS_ACTIVE=0
 	else
 		IS_ACTIVE=1
 	fi
 else
-	if [ $(pgrep $NAME) ]; then
+	if pgrep $NAME > /dev/null 2>&1; then
 		IS_ACTIVE=0
+		PID=$(pgrep $NAME | head 1)
 	else
 		IS_ACTIVE=1
 	fi
