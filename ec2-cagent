@@ -356,6 +356,25 @@ def fact_lookup (wf, wof, yaml_facts):
         # Facts set was not found - return True ( skip message )
         return True
 
+def sqs_poll_control ( mode, sqs_poll_interval, sql_poll_change_period):
+    super_poll = 0.1
+
+    # We do not shorten sqs poll interval below super_poll
+    if CFG['general']['sqs_poll_interval'] == super_poll:
+        return (CFG['general']['sqs_poll_interval'], sql_poll_change_period)
+
+    if mode == 'check':
+        if sqs_poll_interval != CFG['general']['sqs_poll_interval'] and sql_poll_change_period < time.time():
+            logging.debug('Changing SQS poll interval back to normal')
+            return (CFG['general']['sqs_poll_interval'], sql_poll_change_period)
+
+    if mode == 'shorten':
+        if sqs_poll_interval == CFG['general']['sqs_poll_interval']:
+            logging.debug('Shortening SQS poll interval to look for related messages')
+            return (super_poll, sql_poll_change_period)
+
+    return (sqs_poll_interval, sql_poll_change_period)
+
 def main ():
 
     # Get facts
@@ -363,6 +382,10 @@ def main ():
         yf_last_update, yaml_facts = get_yaml_facts(CFG['general']['yaml_facts_path'])
     else:
         yaml_facts = None
+
+    # Control poll interval - may be overwritten
+    sqs_poll_interval = CFG['general']['sqs_poll_interval']
+    sql_poll_change_period = time.time()
 
     # Connect with key, secret and region
     conn = connect_to_region(CFG['aws']['region'])
@@ -376,46 +399,56 @@ def main ():
     # Read from master
     read_msgs={}
    
-    start_time=int(time.time()) 
-    last_read=time.time()
+    last_yaml_read=int(time.time()) 
+    last_sqs_read=time.time()
     new_msgs = False
     while ( True ):
 
+        # Change sql poll interval if needed
+        (sqs_poll_interval, sql_poll_change_period) = sqs_poll_control('check', sqs_poll_interval, sql_poll_change_period)
+
         # See if we need to update facts file
-        if (int(time.time()) - start_time ) > CFG['general']['yaml_facts_refresh']:
+        if (int(time.time()) - last_yaml_read ) > CFG['general']['yaml_facts_refresh']:
             logging.debug('Reloading yaml facts')
-	    start_time=time.time()
+	    last_yaml_read=time.time()
 	    yf_last_update, yaml_facts = update_yaml_facts(yf_last_update, CFG['general']['yaml_facts_path'], yaml_facts )
 
         # Do not poll SQS too often, that would be too expensive
-        if (time.time() - last_read) > CFG['general']['sqs_poll_interval']:
+        if (time.time() - last_sqs_read) > sqs_poll_interval:
             logging.debug('Looking for new messages on SQS')
             read_msgs, new_msgs = receive_sql_msg ( read_msgs, read_queue, yaml_facts )
+            last_sqs_read=time.time()
 
             # If any messages are received we put the data on the task queue
             if new_msgs:
+                # Change sql poll interval if needed
+                (sqs_poll_interval, sql_poll_change_period) = sqs_poll_control('shorten', sqs_poll_interval, (time.time() + 5))
+                
                 for new_msg in new_msgs:
                     logging.debug('Putting SQS message on task queue')
                     task_queue.put(new_msg)
-                    logging.debug('Forking worker')
-                    Process(target=receive_queue_msg, args=(task_queue, done_queue)).start()
-
-            last_read=time.time()
-        else:
-           time.sleep(0.5) 
-
-        #if new_msgs:
-        try:
-            response = done_queue.get(False)
-            task_queue.put('STOP')
-            logging.debug('Response read from done queue')
-            write_sqs_msg (response, write_queue)
-        except Empty:
-            logging.debug('Done queue is empty')
+                    P = Process(target=receive_queue_msg, args=(task_queue, done_queue))
+                    P.daemon=True
+                    P.start()
+                    logging.debug('Forking worker with pid ' + str(P.pid))
 
         # Join finished children
         running_children = len(active_children())
         logging.debug(str(running_children) + ' active children')
+
+        # Do we have anything active ?
+        if done_queue.qsize() > 0:
+            try:
+                response = done_queue.get(False)
+                logging.debug('Response read from done queue')
+                write_sqs_msg (response, write_queue)
+                task_queue.put('STOP')
+            except Empty:
+                logging.debug('Done queue is empty')
+        else:
+
+            # We have nothing to do so idle cpu
+            time.sleep(0.250) 
 
 if __name__ == "__main__":
 
