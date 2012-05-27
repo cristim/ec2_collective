@@ -1,0 +1,25 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+import sys
+
+# CHANGE THESE SETTINGS
+
+SERVERS=60
+SQS_POLL_INTERVAL=2
+DAYS_IN_MONTH=31
+
+def calculate ( free_tier_req, dollar_pr_request ):
+    request_pr_hour = ( (60 / SQS_POLL_INTERVAL) * 60 * SERVERS )
+    request_pr_month = ( request_pr_hour * 24 * DAYS_IN_MONTH )
+    price_pr_month = ( (request_pr_month - free_tier_req) * dollar_pr_request )
+    print 'SQS price pr month in $ ' + str(price_pr_month)
+
+def main ():
+    free_tier_req=100000
+    dollar_pr_request=0.000001
+
+    calculate(free_tier_req, dollar_pr_request)
+
+if __name__ == "__main__":
+    sys.exit(main())
