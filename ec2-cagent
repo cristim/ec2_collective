@@ -160,7 +160,7 @@ def script_func (message):
     response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
     return response
 
-def receive_sql_msg ( read_msgs, read_queue, yaml_facts ):
+def receive_sqs_msg ( read_msgs, read_queue, yaml_facts ):
 
     new_msgs = []
 
@@ -356,24 +356,23 @@ def fact_lookup (wf, wof, yaml_facts):
         # Facts set was not found - return True ( skip message )
         return True
 
-def sqs_poll_control ( mode, sqs_poll_interval, sql_poll_change_period):
-    super_poll = 0.1
+def sqs_poll_control ( mode, sqs_poll_interval, sqs_poll_change_period):
 
-    # We do not shorten sqs poll interval below super_poll
-    if CFG['general']['sqs_poll_interval'] == super_poll:
-        return (CFG['general']['sqs_poll_interval'], sql_poll_change_period)
+    # We do not shorten sqs poll interval below CFG['general']['sqs_att_poll_interval']
+    if CFG['general']['sqs_poll_interval'] == CFG['general']['sqs_att_poll_interval']:
+        return (CFG['general']['sqs_poll_interval'], sqs_poll_change_period)
 
     if mode == 'check':
-        if sqs_poll_interval != CFG['general']['sqs_poll_interval'] and sql_poll_change_period < time.time():
+        if sqs_poll_interval != CFG['general']['sqs_poll_interval'] and sqs_poll_change_period < time.time():
             logging.debug('Changing SQS poll interval back to normal')
-            return (CFG['general']['sqs_poll_interval'], sql_poll_change_period)
+            return (CFG['general']['sqs_poll_interval'], sqs_poll_change_period)
 
     if mode == 'shorten':
         if sqs_poll_interval == CFG['general']['sqs_poll_interval']:
             logging.debug('Shortening SQS poll interval to look for related messages')
-            return (super_poll, sql_poll_change_period)
+            return (CFG['general']['sqs_att_poll_interval'], sqs_poll_change_period)
 
-    return (sqs_poll_interval, sql_poll_change_period)
+    return (sqs_poll_interval, sqs_poll_change_period)
 
 def main ():
 
@@ -385,7 +384,7 @@ def main ():
 
     # Control poll interval - may be overwritten
     sqs_poll_interval = CFG['general']['sqs_poll_interval']
-    sql_poll_change_period = time.time()
+    sqs_poll_change_period = time.time()
 
     # Connect with key, secret and region
     conn = connect_to_region(CFG['aws']['region'])
@@ -404,8 +403,8 @@ def main ():
     new_msgs = False
     while ( True ):
 
-        # Change sql poll interval if needed
-        (sqs_poll_interval, sql_poll_change_period) = sqs_poll_control('check', sqs_poll_interval, sql_poll_change_period)
+        # Change sqs poll interval if needed
+        (sqs_poll_interval, sqs_poll_change_period) = sqs_poll_control('check', sqs_poll_interval, sqs_poll_change_period)
 
         # See if we need to update facts file
         if (int(time.time()) - last_yaml_read ) > CFG['general']['yaml_facts_refresh']:
@@ -416,13 +415,13 @@ def main ():
         # Do not poll SQS too often, that would be too expensive
         if (time.time() - last_sqs_read) > sqs_poll_interval:
             logging.debug('Looking for new messages on SQS')
-            read_msgs, new_msgs = receive_sql_msg ( read_msgs, read_queue, yaml_facts )
+            read_msgs, new_msgs = receive_sqs_msg ( read_msgs, read_queue, yaml_facts )
             last_sqs_read=time.time()
 
             # If any messages are received we put the data on the task queue
             if new_msgs:
-                # Change sql poll interval if needed
-                (sqs_poll_interval, sql_poll_change_period) = sqs_poll_control('shorten', sqs_poll_interval, (time.time() + 5))
+                # Change sqs poll interval if needed
+                (sqs_poll_interval, sqs_poll_change_period) = sqs_poll_control('shorten', sqs_poll_interval, (time.time() + CFG['general']['sqs_att_poll_period']))
                 
                 for new_msg in new_msgs:
                     logging.debug('Putting SQS message on task queue')
@@ -448,7 +447,7 @@ def main ():
         else:
 
             # We have nothing to do so idle cpu
-            time.sleep(0.250) 
+            time.sleep(0.250) if ( sqs_poll_interval > 0.250 ) else time.sleep(sqs_poll_interval)
 
 if __name__ == "__main__":
 

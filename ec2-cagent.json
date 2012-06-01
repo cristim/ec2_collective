@@ -2,7 +2,9 @@
     "general": {
         "log_level": "DEBUG",
         "timeout": 15,
-        "sqs_poll_interval": 0.5,
+        "sqs_poll_interval": 2,
+        "sqs_att_poll_interval": 0.1,
+        "sqs_att_poll_period": 10,
         "yaml_facts": "True",
         "yaml_facts_path": "/mnt/facts/facts.yaml",
         "yaml_facts_refresh": 5
