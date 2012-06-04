@@ -52,9 +52,10 @@ def main():
     timeout=int(CFG['general']['default_timeout'])
     timeout_set = False
     ignore=False
+    script_param=None
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'hf:s:c:w:n:t:i', ['help', 'func=', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore'])
+        opts, args = getopt.getopt(sys.argv[1:], 'hf:s:c:w:n:t:ip:', ['help', 'func=', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore', 'script-parameters'])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -90,6 +91,9 @@ def main():
             if timeout_set is False:
                 # We allow a 5 second response time unless something else is set
                 timeout = 5
+        elif o in ('-p', '--script-parameters'):
+            if func == 'script':
+                script_param = a
 
     if func is None:
         print >>sys.stderr, 'Please provide function'
@@ -103,7 +107,7 @@ def main():
         print >>sys.stderr, 'Please provide path to script with -c|--command'
         usage()
 
-    run (func, schedule, cmd, wf, wof, timeout, ignore)
+    run (func, schedule, cmd, wf, wof, timeout, ignore, script_param)
 
 # Signal handler
 def master_timeout(signum, frame):
@@ -285,13 +289,13 @@ def inhale_script (script_file):
 
     return f.read()
 
-def run(func, schedule, cmd, wf, wof, timeout, ignore):
+def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
+
+    payload = None
 
     if func == 'script':
         payload = inhale_script(cmd)
         cmd = os.path.basename(cmd)
-    else:
-        payload = None
 
     responses={}
     ping_responses={}
@@ -304,7 +308,7 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore):
     read_queue = conn.get_queue(CFG['aws']['read_queue'])
 
     # Construct message
-    message={'func':func,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator(), 'payload':payload}
+    message={'func':func,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator(), 'payload':payload, 'script_param':script_param}
 
     # 15 second initial timeout  
     if func == 'count':

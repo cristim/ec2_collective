@@ -18,7 +18,6 @@ import stat
 import getopt
 import logging
 
-
 CFILE='/etc/ec2_collective/ec2-cagent.json'
 
 def terminate_process(signum, frame):
@@ -114,7 +113,7 @@ def update_yaml_facts (yf_last_update, yaml_file, yaml_facts):
 def cli_func (message):
 
 	try:
-           logging.debug ('Performing: ' + str(message['cmd']))
+           logging.debug ('Executing: ' + str(message['cmd']))
            o = subprocess.Popen(message['cmd'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
            output = o.communicate()[0]
            rc = o.poll()
@@ -127,35 +126,51 @@ def cli_func (message):
         return response
 
 def write_to_file (payload, identifier):
-    script_file = '/tmp/' + identifier
+    script_file = '/tmp/' + 'ec2-cagent-' + identifier
 
     try:
         f = open (script_file, 'w')
         f.write (payload)
+        f.close()
     except IOError, e:
-        logging.error ('Failed to write paytload to ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
-        return False
+        logging.error ('Failed to write payload to ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
+        return (False, script_file)
 
     os.chmod(script_file, stat.S_IRWXU)
 
-    return True
-    
+    return (True, script_file)
 
 def script_func (message):
 
-    if not write_to_file(message['payload'], message['batch_msg_id']) :
+    # Put script on filesystem
+    (file_written, script_file ) = write_to_file(message['payload'], message['batch_msg_id'])
+  
+    command=script_file 
+
+    # If we are carrying script parameters, please use them
+    if message['script_param'] is not None:
+        command = str(command) + ' ' + str(message['script_param'])
+
+    if not file_written:
         response={'func': message['func'], 'output': 'Failed to write script file', 'rc': '255', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
         return response
 
     try:
-        logging.debug ('Performing: sript execution')
-        o = subprocess.Popen('/tmp/' + message['batch_msg_id'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        logging.debug ('Executing script: ' + str(message['cmd']) + ' with params: ' + str(message['script_param']))
+        o = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         output = o.communicate()[0]
         rc = o.poll()
 
     except OSError, e:
+        logging.error ('Failed to execute ' + message['cmd'] )
         output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
         rc = e.errno 
+
+    try:
+        logging.debug ('Deleting file with script '  + script_file)
+        os.remove(script_file)
+    except OSError, e:
+        logging.error ('Failed to delete script file ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
 
     response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
     return response
