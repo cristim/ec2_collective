@@ -1,0 +1,27 @@
+#!/bin/env python
+# coding: utf-8
+
+from boto.s3.key import Key
+from boto.s3.connection import S3Connection
+from boto.exception import S3ResponseError
+import sys
+import os
+
+# You S3 buecket name
+bucket_name='ec2collectivescripts'
+
+if len(sys.argv) <= 1:
+    print 'No filename provided' 
+    sys.exit(1)
+else:
+    full_file_name=str(sys.argv[1])
+    file_name = os.path.basename(full_file_name)
+
+fp = open(full_file_name, "r")
+
+s3conn =S3Connection()
+bucket = s3conn.get_bucket(bucket_name)
+
+k = Key(bucket)
+k.key = file_name
+k.set_contents_from_file(fp, replace=True)
