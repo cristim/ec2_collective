@@ -1,3 +1,8 @@
 EC2_COLLECTIVE
 
 Alternative to MCollective using AWS SQS
+
+Requirements:
+
+Python >= 2.5
+Boto >= 2.0
