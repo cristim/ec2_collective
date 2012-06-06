@@ -21,7 +21,7 @@ import logging
 CFILE='/etc/ec2_collective/ec2-cagent.json'
 
 def terminate_process(signum, frame):
-    logging.debug ('Process asked to exit...')
+    logging.info ('Process asked to exit...')
     sys.exit(1)
 
 signal.signal(signal.SIGTERM, terminate_process)
@@ -105,6 +105,7 @@ def update_yaml_facts (yf_last_update, yaml_file, yaml_facts):
     fileage = int(stat.st_mtime)
 
     if fileage != yf_last_update:
+        logging.info('Reloading yaml facts')
 	yf_last_update, dataMap = get_yaml_facts(yaml_file)
 	return (fileage, dataMap)
     else:
@@ -216,13 +217,13 @@ def process_msg ( message ):
     ts = str(message['ts'])
   
     if func in [ 'discovery', 'ping', 'count' ]:
-        logging.debug("Performing ping reply")
+        logging.info("Performing ping reply")
         response={'func': func, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
     elif func == 'cli':
-        logging.debug("Performing command execution")
+        logging.info("Performing command execution")
         response = cli_func(message)
     elif func == 'script':
-        logging.debug("Performing script execution")
+        logging.info("Performing script execution")
         response = script_func (message) 
     else:
         response =  'Unknown command ' + cmd_str
@@ -423,7 +424,6 @@ def main ():
 
         # See if we need to update facts file
         if (int(time.time()) - last_yaml_read ) > CFG['general']['yaml_facts_refresh']:
-            logging.debug('Reloading yaml facts')
 	    last_yaml_read=time.time()
 	    yf_last_update, yaml_facts = update_yaml_facts(yf_last_update, CFG['general']['yaml_facts_path'], yaml_facts )
 
