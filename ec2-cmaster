@@ -92,7 +92,7 @@ def main():
                 # We allow a 5 second response time unless something else is set
                 timeout = 5
         elif o in ('-p', '--script-parameters'):
-            if func == 'script':
+            if func in ['script', 's3']:
                 script_param = a
 
     if func is None:
@@ -155,7 +155,7 @@ def receive_responses (read_queue, org_ids, func, timeout, display, discovered=N
             if func in [ 'ping','discovery','count'] and display == 'display':
                 func_ping_response(responses)
 
-            if func in ['cli', 'script' ] and display == 'display':
+            if func in ['cli', 'script','s3' ] and display == 'display':
                 func_cli_response(responses)
 
         if discovered is not None and len(total_responses) >= discovered:
@@ -341,7 +341,7 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
         org_ids.update (cli_ids)
         responses = receive_responses (read_queue, cli_ids, func, timeout, 'display', discovered)
 
-    if func == 'script':
+    if func in [ 'script', 's3' ]:
 
         # If ignore is True then we fire and forget
         if ignore is False:
@@ -355,7 +355,7 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
             discovered=None
 
         # Perform the actual command wait for all agents to return until timeout
-        message['func'] = 'script'
+        message['func'] = func
         message['batch_msg_id'] = id_generator()
         cli_ids =  (write_msg(write_queue, message))
         org_ids.update (cli_ids)

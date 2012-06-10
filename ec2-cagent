@@ -1,11 +1,20 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# S3 stuff
+from boto.s3.key import Key
+from boto.s3.connection import S3Connection
+from boto.exception import S3ResponseError
+
+# SQS stuff
 from boto.sqs.connection import SQSConnection
 from boto.sqs.regioninfo import SQSRegionInfo
+from boto.sqs import connect_to_region
+
+# Forking stuff
 from multiprocessing import Process, Queue, active_children
 from Queue import Empty
-from boto.sqs import connect_to_region
+
 from socket import gethostname
 import simplejson as json
 import subprocess, time
@@ -135,26 +144,55 @@ def write_to_file (payload, identifier):
         f.close()
     except IOError, e:
         logging.error ('Failed to write payload to ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
-        return (False, script_file)
+        return (False, 'Failed to write payload to file ' + script_file)
 
     os.chmod(script_file, stat.S_IRWXU)
 
     return (True, script_file)
 
+def fetch_s3_file ( s3_path, identifier ):
+
+    bucket_name=os.path.dirname(s3_path)
+    file_name=os.path.basename(s3_path)
+
+    logging.debug ('Fetching script ' + file_name + ' from s3 bucket ' + bucket_name )
+
+    try:
+        s3conn =S3Connection()
+    except S3ResponseError:
+        logging.error ('Failed to connect to S3')
+        return (False, 'Failed to connect to S3')
+    
+    try:
+        bucket = s3conn.get_bucket(bucket_name)
+    except S3ResponseError:
+        logging.error ('Failed to get bucket ' + bucket_name )
+        return (False, 'Failed to get bucket ' + bucket_name )
+
+    k = Key(bucket)
+    k.key = file_name
+    payload = k.get_contents_as_string()
+
+    return write_to_file(payload, identifier )
+
 def script_func (message):
 
     # Put script on filesystem
-    (file_written, script_file ) = write_to_file(message['payload'], message['batch_msg_id'])
+    if message['func'] == 's3':
+        (file_written, script_file ) = fetch_s3_file(message['cmd'], message['batch_msg_id'])
+    else:
+        (file_written, script_file ) = write_to_file(message['payload'], message['batch_msg_id'])
+
+    if file_written is False:
+        # script_file will include error message
+        response={'func': message['func'], 'output': script_file, 'rc': '255', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+        return response
   
     command=script_file 
 
     # If we are carrying script parameters, please use them
     if message['script_param'] is not None:
         command = str(command) + ' ' + str(message['script_param'])
-
-    if not file_written:
-        response={'func': message['func'], 'output': 'Failed to write script file', 'rc': '255', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
-        return response
 
     try:
         logging.debug ('Executing script: ' + str(message['cmd']) + ' with params: ' + str(message['script_param']))
@@ -222,10 +260,11 @@ def process_msg ( message ):
     elif func == 'cli':
         logging.info("Performing command execution")
         response = cli_func(message)
-    elif func == 'script':
-        logging.info("Performing script execution")
+    elif func in [ 'script', 's3' ]:
+        logging.info('Performing ' + func + ' execution')
         response = script_func (message) 
     else:
+        logging.error('Unknown functionality: ' + func)
         response =  'Unknown command ' + cmd_str
         response={'func': func, 'output': response, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
 
@@ -389,6 +428,7 @@ def sqs_poll_control ( mode, sqs_poll_interval, sqs_poll_change_period):
             return (CFG['general']['sqs_att_poll_interval'], sqs_poll_change_period)
 
     return (sqs_poll_interval, sqs_poll_change_period)
+
 
 def main ():
 
