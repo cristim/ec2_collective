@@ -55,7 +55,7 @@ def main():
     script_param=None
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'hf:s:c:w:n:t:ip:', ['help', 'func=', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore', 'script-parameters'])
+        opts, args = getopt.getopt(sys.argv[1:], 'hf:s:c:w:n:t:ip:q:', ['help', 'func=', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore', 'script-parameters', 'sqs-queue'])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -94,6 +94,8 @@ def main():
         elif o in ('-p', '--script-parameters'):
             if func in ['script', 's3']:
                 script_param = a
+        elif o in ('-q', '--sqs-queue'):
+            CFG['aws']['write_queue'] = str(a)
 
     if func is None:
         print >>sys.stderr, 'Please provide function'
@@ -251,7 +253,11 @@ def id_generator(size=10, chars=string.ascii_uppercase + string.digits):
 def dict_to_sqs_obj(message, write_queue):
 
     message_json=json.dumps(message)
-    message = write_queue.new_message(message_json)
+    try:
+        message = write_queue.new_message(message_json)
+    except:
+        print 'Failed to create message object - check queue name'
+        sys.exit(1)
 
     return message
 
