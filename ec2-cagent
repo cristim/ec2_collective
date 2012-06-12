@@ -171,7 +171,12 @@ def fetch_s3_file ( s3_path, identifier ):
 
     k = Key(bucket)
     k.key = file_name
-    payload = k.get_contents_as_string()
+
+    try:
+        payload = k.get_contents_as_string()
+    except S3ResponseError, e:
+        logging.error ('Failed to get file from bucket ' + str(e))
+        return (False, 'Failed to get file from bucket')
 
     return write_to_file(payload, identifier )
 
