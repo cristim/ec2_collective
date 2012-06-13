@@ -34,8 +34,16 @@ def get_config():
 
 def usage():
     print >>sys.stderr, '    Usage:'
-    print >>sys.stderr, '    ' + sys.argv[0] + ' -f [ping|cli|script|s3] -c <command>'
-    print >>sys.stderr, '    ' + sys.argv[0] + ' -f [ping|cli|script|s3] -c <command> -i\tIgnore i.e. fire and forget mode'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command>'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -w key=value\tAgent must match this fact'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -n key=value\tAgent must NOT match this fact'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c file://path/to/some/script\tSend file and make agent execute it'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c s3://bucket/script\tAsk agent to fetch script from s3 and execute'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c [file://|s3://] -p arg1 arg2\tSend arguments to file:// or s3:// scripts'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -m \tGet a count on responding hosts'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -i\tIgnore i.e. fire and forget mode'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -q <queue name> -c <command>\tOverwrite default SQS queue name'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -t <seconds>\tOverwrite default timeout for agent to respond'
     sys.exit(1)
 
 def main():
@@ -55,7 +63,7 @@ def main():
     script_param=None
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'hf:s:c:w:n:t:ip:q:', ['help', 'func=', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore', 'script-parameters', 'sqs-queue'])
+        opts, args = getopt.getopt(sys.argv[1:], 'hs:c:w:n:t:ip:q:m', ['help', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore', 'script-parameters', 'sqs-queue', 'monitor'])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -63,18 +71,20 @@ def main():
     for o, a in opts:
         if o in ('-h', '--help'):
             usage()
-        elif o in ('-f', '--func'):
-            if a not in ['ping', 'count', 'cli', 'script', 's3' ]:
-                print 'Uknown function: ' + str(a)
-                usage()
-            else:
-                func = a
         elif o in ('-s', '--schedule'):
             if a != 'now':
                 # We use the following ts MMDDHHMM
                 schedule=a
         elif o in ('-c', '--command'):
             cmd = a
+            if 'file://' in cmd:
+                func='script'
+                cmd = cmd[7:]
+            elif 's3://' in cmd:
+                func='s3'
+                cmd = cmd[5:]
+            else:
+                func='cli'
         elif o in ('-w', '--wf'):
             wf = a
         elif o in ('-n', '--wof'):
@@ -96,9 +106,15 @@ def main():
                 script_param = a
         elif o in ('-q', '--sqs-queue'):
             CFG['aws']['write_queue'] = str(a)
+        elif o in ('-m', '--monitor'):
+            func='count'
 
     if func is None:
         print >>sys.stderr, 'Please provide function'
+        usage()
+
+    if func not in ['ping', 'count', 'cli', 'script', 's3' ]:
+        print 'Uknown function: ' + str(a)
         usage()
 
     if func == 'cli' and cmd is None:
