@@ -39,7 +39,7 @@ signal.signal(signal.SIGTERM, terminate_process)
 
 def usage():
     print >>sys.stderr, '    Usage:'
-    print >>sys.stderr, '    ' + sys.argv[0] + '\n\n -f, --foreground\trun script in foreground\n -h, --help\tthis help\n -l, --logfile\tlogfile path ( /var/log/ec2-cagent.log )\n -p, --pidfile\tpath to pidfile (/var/run/ec2-cagent.pid)'
+    print >>sys.stderr, '    ' + sys.argv[0] + '\n\n -f, --foreground\trun script in foreground\n -h, --help\tthis help\n -l, --logfile\tlogfile path ( /var/log/ec2_collective/ec2-cagent.log )\n -p, --pidfile\tpath to pidfile (/var/run/ec2-cagent.pid)'
     sys.exit(1)
 
 def set_logging():
@@ -68,7 +68,7 @@ def initialize():
     set_logging()
 
     foreground=False
-    logfile='/var/log/ec2-cagent.log'
+    logfile='/var/log/ec2_collective/ec2-cagent.log'
     pidfile='/var/run/ec2-cagent.pid'
 
     try:
