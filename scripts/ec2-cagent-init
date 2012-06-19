@@ -12,6 +12,7 @@
 # ec2_collective	This init.d script is used to start ec2_collective agent
 
 ENV="env -i LANG=C PATH=/usr/local/bin:/usr/bin:/bin"
+HOME=/root
 
 EC2_CAGENT=/usr/sbin/ec2-cagent
 PIDFILE=/var/run/ec2-cagent.pid

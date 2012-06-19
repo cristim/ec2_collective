@@ -31,9 +31,9 @@ from multiprocessing import Process, Queue, active_children
 from Queue import Empty
 
 try:
-    pkg_resources.require("Boto>=1.9")
+    pkg_resources.require("Boto>=1.9b")
 except pkg_resources.VersionConflict:
-    print 'Boto 2.0 or higher is required - exiting'
+    print 'Boto 1.9b or higher is required - exiting'
     sys.exit(1)
 
 CFILE='/etc/ec2_collective/ec2-cagent.json'
