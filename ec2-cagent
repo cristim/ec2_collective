@@ -28,6 +28,13 @@ import os
 import stat
 import getopt
 import logging
+import pkg_resources
+
+try:
+    pkg_resources.require("Boto>=2.0")
+except pkg_resources.VersionConflict:
+    print 'Boto 2.0 or higher is required - exiting'
+    sys.exit(1)
 
 CFILE='/etc/ec2_collective/ec2-cagent.json'
 
