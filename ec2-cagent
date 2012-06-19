@@ -1,20 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# S3 stuff
-from boto.s3.key import Key
-from boto.s3.connection import S3Connection
-from boto.exception import S3ResponseError
-
-# SQS stuff
-from boto.sqs.connection import SQSConnection
-from boto.sqs.regioninfo import SQSRegionInfo
-from boto.sqs import connect_to_region
-
-# Forking stuff
-from multiprocessing import Process, Queue, active_children
-from Queue import Empty
-
 from socket import gethostname
 import simplejson as json
 import subprocess
@@ -29,6 +15,23 @@ import stat
 import getopt
 import logging
 import pkg_resources
+
+# Hack path fix...
+sys.path.insert(0, '/usr/local/lib/python2.6/dist-packages')
+
+# S3 stuff
+from boto.s3.key import Key
+from boto.s3.connection import S3Connection
+from boto.exception import S3ResponseError
+
+# SQS stuff
+from boto.sqs.connection import SQSConnection
+from boto.sqs.regioninfo import SQSRegionInfo
+from boto.sqs import connect_to_region
+
+# Forking stuff
+from multiprocessing import Process, Queue, active_children
+from Queue import Empty
 
 try:
     pkg_resources.require("Boto>=2.0")
@@ -363,19 +366,20 @@ def write_sqs_msg (response, sqs_write_queue):
 def get_config():
     # CFILE 
     if not os.path.exists(CFILE):
-        logging.error ( CFILE + ' file does not exist')
+        print >>sys.stderr, 'Config file ' + str(CFILE) + ' does not exist'
         sys.exit(1)
     
     try:
         f = open(CFILE, 'r')
     except IOError, e:
-        logging.error ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
+        print >>sys.stderr, 'Failed to open config file ' + str(CFILE)
+        sys.exit(0)
     
     try:
         global CFG
         CFG=json.load(f)
     except (TypeError, ValueError), e:
-        logging.error ('Error in configuration file')
+        print >>sys.stderr, 'Error in configuration file ' + str(CFILE)
         sys.exit(1)
 
 def daemonize (foreground, pidfile, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null' ):
