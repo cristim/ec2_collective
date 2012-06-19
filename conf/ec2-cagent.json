@@ -11,7 +11,7 @@
     },
     "aws": {
         "region": "eu-west-1",
-        "sqs_read_queue": "master",
-        "sqs_write_queue": "agent"
+        "sqs_read_queue": "testing_master",
+        "sqs_write_queue": "testing_agent"
     }
 }

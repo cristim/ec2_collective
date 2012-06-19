@@ -6,7 +6,7 @@
     },
     "aws": {
         "region": "eu-west-1",
-        "write_queue": "master",
-        "read_queue": "agent"
+        "write_queue": "testing_master",
+        "read_queue": "testing_agent"
     }
 }

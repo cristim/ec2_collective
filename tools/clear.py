@@ -5,8 +5,8 @@ from boto.sqs import connect_to_region
 
 
 REGION='eu-west-1'
-WRITE_QUEUE='master'
-READ_QUEUE='agent'
+WRITE_QUEUE='testing_master'
+READ_QUEUE='testing_agent'
 
 # Connect with key, secret and region
 conn = connect_to_region(REGION)
