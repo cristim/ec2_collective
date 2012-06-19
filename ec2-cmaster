@@ -401,6 +401,8 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
             if not hostname in responses:
                 print 'Timeout in response from: ' + hostname
 
+    print 'Got response from ' + str(len(responses)) + ' out of ' + str(len(ping_responses)) + ' (expected)'
+
 
 if __name__ == "__main__":
     sys.exit(main())
