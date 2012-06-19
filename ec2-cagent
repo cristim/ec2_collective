@@ -16,9 +16,6 @@ import getopt
 import logging
 import pkg_resources
 
-# Hack path fix...
-sys.path.insert(0, '/usr/local/lib/python2.6/dist-packages')
-
 # S3 stuff
 from boto.s3.key import Key
 from boto.s3.connection import S3Connection
@@ -34,7 +31,7 @@ from multiprocessing import Process, Queue, active_children
 from Queue import Empty
 
 try:
-    pkg_resources.require("Boto>=2.0")
+    pkg_resources.require("Boto>=1.9")
 except pkg_resources.VersionConflict:
     print 'Boto 2.0 or higher is required - exiting'
     sys.exit(1)
