@@ -92,38 +92,65 @@ def initialize():
 
 def get_yaml_facts (yaml_queue, action=None):
     logging.debug('Looking for new facts')
-
-    yaml_file = CFG['general']['yaml_facts_path']
-
-    if not os.path.exists(yaml_file):
-        logging.error( yaml_file + ' file does not exist')
-        return False
-    else:
-        try:
-            stat = os.stat(yaml_file)
-            fileage = int(stat.st_mtime)
-        except OSError, e:
-            logging.error('Could not stat ' + str(yaml_file) + ' ' + str(e))
-            return False
-
+ 
+    # Define dict for storage
     dataMap = {}
 
-    if fileage >= (time.time() - (CFG['general']['yaml_facts_refresh'] * 1.5 )) or action == 'initial':
-        logging.debug('Will try to reload facts')
-
-        f = open(yaml_file, 'r')
-        dataMap = yaml.safe_load(f)
-        f.close()
-    
-        if len(dataMap) > 0:
-            logging.info('Facts reloaded')
-            logging.debug(dataMap)
-            yaml_queue.put(dataMap)
-            return True
-        else:
-            logging.debug('Facts are empty')
-	    return False
+    if action == 'initial':
+        load_all=True
     else:
+        load_all=False
+
+    yaml_files = CFG['general']['yaml_facts_path'].split(',')
+    for yaml_file in yaml_files:
+
+        if not os.path.exists(yaml_file):
+            logging.error( yaml_file + ' file does not exist')
+            yaml_files.remove(yaml_file)
+            continue
+        else:
+            try:
+                fileage = os.stat(yaml_file).st_mtime
+                filesize = os.stat(yaml_file).st_size
+            except OSError, e:
+                logging.error('Could not stat ' + str(yaml_file) + ' ' + str(e))
+                yaml_files.remove(yaml_file)
+                continue
+        if filesize == 0:
+            logging.warn('File ' + str(yaml_file) + 'is empty')
+            yaml_files.remove(yaml_file)
+            continue
+
+        if fileage >= (time.time() - (CFG['general']['yaml_facts_refresh'] * 1.5 )):
+            load_all=True
+   
+    if load_all is True: 
+        for yaml_file in yaml_files:
+            logging.debug('Will try to reload facts')
+    
+            f = open(yaml_file, 'r')
+            data_from_file = yaml.safe_load(f)
+
+            if type(data_from_file) is str:
+                logging.debug('Facts file looks to be string ' + str(yaml_file))
+                fact_string = data_from_file.split()
+            
+                for fact in fact_string:
+                    newfact = {fact:'None'}
+                    dataMap.update(newfact)
+            else:
+                logging.debug('We assume facts file is in yaml format ' + str(yaml_file))
+                dataMap.update(data_from_file)
+       
+            f.close()
+        
+    if len(dataMap) > 0:
+        logging.info('Facts reloaded')
+        logging.debug(dataMap)
+        yaml_queue.put(dataMap)
+        return True
+    else:
+        logging.debug('Facts are empty')
         return False
 
 def cli_func (message):
@@ -402,6 +429,11 @@ def fact_lookup (wf, wof, yaml_facts ):
     # WF
     # Return False if we have all the fact ( all facts must match )
     # Return True if we don't have the fact
+
+    # If yaml facts is false we process all messages
+    if CFG['general']['yaml_facts'] == 'False' or yaml_facts is None:
+        logging.debug('Match - no filter')
+        return False
 
     # If nothing is set we process message
     if wf is None and wof is None:
