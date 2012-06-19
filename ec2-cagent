@@ -40,7 +40,7 @@ CFILE='/etc/ec2_collective/ec2-cagent.json'
 
 def terminate_process(signum, frame):
     logging.info ('Process asked to exit...')
-    sys.exit(1)
+    sys.exit(0)
 
 signal.signal(signal.SIGTERM, terminate_process)
 
@@ -370,7 +370,7 @@ def get_config():
         f = open(CFILE, 'r')
     except IOError, e:
         print >>sys.stderr, 'Failed to open config file ' + str(CFILE)
-        sys.exit(0)
+        sys.exit(1)
     
     try:
         global CFG
@@ -637,6 +637,11 @@ def main ():
     conn = connect_to_region(CFG['aws']['region'])
     sqs_read_queue = conn.get_queue(CFG['aws']['sqs_read_queue'])
     sqs_write_queue = conn.get_queue(CFG['aws']['sqs_write_queue'])
+
+    # Can we communicate with SQS ?
+    if sqs_read_queue is None or sqs_write_queue is None:
+        logging.debug('Unable to get queue by name')
+        sys.exit(1)
 
     # Create queues
     task_queue = Queue()
