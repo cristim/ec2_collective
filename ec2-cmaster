@@ -326,7 +326,12 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
     discovered=None
 
     # Connect with key, secret and region
-    conn = connect_to_region(CFG['aws']['region'])
+    try:
+        conn = connect_to_region(CFG['aws']['region'])
+    except:
+        print 'Could not connect to SQS - check your authentication'
+        sys.exit(1)
+
     write_queue = conn.get_queue(CFG['aws']['write_queue'])
     read_queue = conn.get_queue(CFG['aws']['read_queue'])
 

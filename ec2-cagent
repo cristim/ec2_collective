@@ -634,13 +634,18 @@ def fork_receive_sqs_msg(sqs_read_queue, task_queue, yaml_queue, scheduled_queue
 
 def main ():
     # Connect with key, secret and region
-    conn = connect_to_region(CFG['aws']['region'])
+    try:
+        conn = connect_to_region(CFG['aws']['region'])
+    except:
+        logger.error('Could not connect to SQS - check your authentication')
+        sys.exit(1)
+
     sqs_read_queue = conn.get_queue(CFG['aws']['sqs_read_queue'])
     sqs_write_queue = conn.get_queue(CFG['aws']['sqs_write_queue'])
 
     # Can we communicate with SQS ?
     if sqs_read_queue is None or sqs_write_queue is None:
-        logging.debug('Unable to get queue by name')
+        logging.error('Unable to get queue by name')
         sys.exit(1)
 
     # Create queues
