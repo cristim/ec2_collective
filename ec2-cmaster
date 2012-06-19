@@ -24,6 +24,7 @@ def get_config():
         fp = open(CFILE, 'r')
     except IOError, e:
         print ('Failed to open ' + CFILE + ' (%d) %s \n' % (e.errno, e.strerror))
+        sys.exit(1)
     
     try:
         global CFG
@@ -328,6 +329,10 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
     conn = connect_to_region(CFG['aws']['region'])
     write_queue = conn.get_queue(CFG['aws']['write_queue'])
     read_queue = conn.get_queue(CFG['aws']['read_queue'])
+
+    if write_queue is None or read_queue is None:
+        print 'Unable to get queue by name'
+        sys.exit(1)
 
     # Construct message
     message={'func':func,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator(), 'payload':payload, 'script_param':script_param}
