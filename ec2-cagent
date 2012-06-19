@@ -673,7 +673,7 @@ def main ():
 
         # Calling active_children will also make sure that we clean up old hanging children
         running_children = len(active_children())
-        logging.info(str(running_children) + ' active children')
+        logging.debug(str(running_children) + ' active children')
 
         if CFG['general']['yaml_facts'] == 'True' and not t_yaml_facts.is_alive():
             t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, (yaml_queue,))
