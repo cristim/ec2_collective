@@ -97,16 +97,12 @@ def initialize():
 
     return (foreground, logfile, pidfile)
 
-def get_yaml_facts (yaml_queue, action=None):
+def get_yaml_facts (yaml_queue, force_load=False):
     logging.debug('Looking for new facts')
  
     # Define dict for storage
     dataMap = {}
-
-    if action == 'initial':
-        load_all=True
-    else:
-        load_all=False
+    load_files=False
 
     yaml_files = CFG['general']['yaml_facts_path'].split(',')
     for yaml_file in yaml_files:
@@ -129,9 +125,9 @@ def get_yaml_facts (yaml_queue, action=None):
             continue
 
         if fileage >= (time.time() - (CFG['general']['yaml_facts_refresh'] * 1.5 )):
-            load_all=True
-   
-    if load_all is True: 
+            load_files=True
+
+    if load_files is True or force_load is True:
         for yaml_file in yaml_files:
             logging.debug('Will try to reload facts')
     
@@ -139,7 +135,7 @@ def get_yaml_facts (yaml_queue, action=None):
             try:
                 data_from_file = yaml.safe_load(f)
             except:
-                logging.error('Error while loading yaml ' + str(yaml_file))
+                logging.error('Error while loading yaml from file (format problems) ' + str(yaml_file))
                 continue
 
             if type(data_from_file) is str:
@@ -656,7 +652,7 @@ def main ():
 
     # Lets get those facsts ( it's a string not a boolean )
     if CFG['general']['yaml_facts'] == 'True':
-        get_yaml_facts(yaml_queue, 'initial')
+        get_yaml_facts(yaml_queue, True)
 
         # Schedule a refresh
         t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, (yaml_queue,))
