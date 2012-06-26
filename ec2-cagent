@@ -633,7 +633,7 @@ def main ():
     try:
         conn = connect_to_region(CFG['aws']['region'])
     except:
-        logger.error('Could not connect to SQS - check your authentication')
+        logging.error('Could not connect to SQS - check your authentication')
         sys.exit(1)
 
     sqs_read_queue = conn.get_queue(CFG['aws']['sqs_read_queue'])
