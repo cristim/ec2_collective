@@ -65,7 +65,7 @@ def main():
     script_param=None
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'hs:c:w:n:t:ip:q:ml:', ['help', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore', 'script-parameters=', 'sqs-queue=', 'monitor', 'logfile='])
+        opts, args = getopt.getopt(sys.argv[1:], 'hs:c:w:n:t:ip:q:ml:', ['help', 'schedule=', 'command=', 'wf=', 'wc=', 'wof=', 'timeout=', 'ignore', 'script-parameters=', 'sqs-queue=', 'monitor', 'logfile='])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -87,10 +87,16 @@ def main():
                 cmd = cmd[5:]
             else:
                 func='cli'
-        elif o in ('-w', '--wf'):
-            wf = a
+        elif o in ('-w', '--wf', '--wc'):
+            if wf is not None:
+                wf = wf + ',' + a
+	    else:
+                wf = a
         elif o in ('-n', '--wof'):
-            wof = a
+            if wof is not None:
+                wof = wof + ',' + a
+	    else:
+                wof = a
         elif o in ('-t', '--timeout'):
             try:
                 timeout = int(a)
