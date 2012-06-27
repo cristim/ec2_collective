@@ -36,6 +36,7 @@ def get_config():
 def usage():
     print >>sys.stderr, '    Usage:'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command>'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -l <path to logfile>\t output everything to log'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -w key=value\tAgent must match this fact'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -n key=value\tAgent must NOT match this fact'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c file://path/to/some/script\tSend file and make agent execute it'
@@ -64,7 +65,7 @@ def main():
     script_param=None
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'hs:c:w:n:t:ip:q:m', ['help', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore', 'script-parameters', 'sqs-queue', 'monitor'])
+        opts, args = getopt.getopt(sys.argv[1:], 'hs:c:w:n:t:ip:q:ml:', ['help', 'schedule=', 'command=', 'wf=', 'wof=', 'timeout=', 'ignore', 'script-parameters', 'sqs-queue', 'monitor', 'logfile'])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -109,6 +110,19 @@ def main():
             CFG['aws']['write_queue'] = str(a)
         elif o in ('-m', '--monitor'):
             func='count'
+        elif o in ('-l', '--logfile'):
+            stdout=a
+            stderr=a
+            for f in sys.stdout, sys.stderr: f.flush( )
+
+            try:
+                so = file(stdout, 'a+', 0)
+                se = file(stderr, 'a+', 0)
+                os.dup2(so.fileno( ), sys.stdout.fileno( ))
+                os.dup2(se.fileno( ), sys.stderr.fileno( ))
+            except IOError, file_err:
+                print 'Failed to open logfile for writing: ' + str(file_err)
+                sys.exit(0)
 
     if func is None:
         print >>sys.stderr, 'Please provide function'
