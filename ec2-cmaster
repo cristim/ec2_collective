@@ -72,6 +72,9 @@ def usage():
 
 def main():
 
+    global MASTER_EC
+    MASTER_EC=0
+
     # Get configuration
     get_config()
 
@@ -173,10 +176,16 @@ def func_ping_response (responses):
         logging.info(response_str)
 
 def func_cli_response (responses):
+
+    global MASTER_EC
+
     for response in responses:
         hostname = str(responses[response]['hostname'])
         output = str(responses[response]['output'])
         rc = str(responses[response]['rc'])
+
+        if int(responses[response]['rc']) != 0:
+            MASTER_EC = responses[response]['rc']
 
         response_str = '>>>>>> ' + hostname + ' exit code: ('+str(rc)+'):\n' +  str(output)
 
@@ -437,7 +446,7 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
     if len(responses) == 0:
         sys.exit(1)
     else:
-        sys.exit(0)
+        sys.exit(MASTER_EC)
 
 if __name__ == "__main__":
     sys.exit(main())
