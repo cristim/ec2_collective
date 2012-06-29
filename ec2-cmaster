@@ -353,6 +353,7 @@ def inhale_script (script_file):
     return f.read()
 
 def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
+    global MASTER_EC
 
     payload = None
 
@@ -442,15 +443,13 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
                 logging.warn('Timeout in response from: ' + hostname)
 
         # If some of the expected servers did not answer we exit 1
-        sys.exit(1)
+        MASTER_EC=1
+
+    if len(responses) == 0:
+        MASTER_EC=1
 
     if func is not 'count':
-        logging.info('Got response from ' + str(len(responses)) + ' out of ' + str(len(ping_responses)) + ' (discovered)')
-
-    # If we had no matches we exit non 1
-    if len(responses) == 0:
-        sys.exit(1)
-    else:
+        logging.info('Got response from ' + str(len(responses)) + ' out of ' + str(len(ping_responses)) + ' (discovered)' + ' - exit code ('+str(MASTER_EC)+')')
         sys.exit(MASTER_EC)
 
 if __name__ == "__main__":
