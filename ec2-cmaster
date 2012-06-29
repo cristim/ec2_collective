@@ -11,6 +11,7 @@ import getopt
 import os
 import random
 import string
+import logging
 
 # CFG FILE
 CFILE='/etc/ec2_collective/ec2-cmaster.json'
@@ -33,10 +34,31 @@ def get_config():
         print 'Error in configuration file'
         sys.exit(1)
 
+def set_logging(logfile=False):
+
+    log = logging.getLogger()
+
+    if logfile is not False:
+
+        if os.path.exists(os.path.dirname(logfile)):
+            fh = logging.FileHandler(logfile)
+            log.addHandler(fh)
+        else:
+            print >>sys.stderr, 'Log directory does not exist (' + os.path.dirname(logfile) + ')'
+            sys.exit(1)
+
+        fh_fmt = logging.Formatter("%(asctime)s %(message)s")
+        fh.setFormatter(fh_fmt)
+     
+    ch  = logging.StreamHandler()
+    log.addHandler(ch)
+     
+    log.setLevel(logging.INFO)  
+
 def usage():
     print >>sys.stderr, '    Usage:'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command>'
-    print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -l <path to logfile>\t output everything to log'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -l <path to logfile>\t output to console and logfile'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -w key=value\tAgent must match this fact'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -n key=value\tAgent must NOT match this fact'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c file://path/to/some/script\tSend file and make agent execute it'
@@ -63,6 +85,7 @@ def main():
     timeout_set = False
     ignore=False
     script_param=None
+    logfile=False
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], 'hs:c:w:n:t:ip:q:ml:', ['help', 'schedule=', 'command=', 'wf=', 'wc=', 'wof=', 'timeout=', 'ignore', 'script-parameters=', 'sqs-queue=', 'monitor', 'logfile='])
@@ -117,18 +140,7 @@ def main():
         elif o in ('-m', '--monitor'):
             func='count'
         elif o in ('-l', '--logfile'):
-            stdout=a
-            stderr=a
-            for f in sys.stdout, sys.stderr: f.flush( )
-
-            try:
-                so = file(stdout, 'a+', 0)
-                se = file(stderr, 'a+', 0)
-                os.dup2(so.fileno( ), sys.stdout.fileno( ))
-                os.dup2(se.fileno( ), sys.stderr.fileno( ))
-            except IOError, file_err:
-                print 'Failed to open logfile for writing: ' + str(file_err)
-                sys.exit(0)
+            logfile=a
 
     if func is None:
         print >>sys.stderr, 'Please provide function'
@@ -138,19 +150,13 @@ def main():
         print 'Uknown function: ' + str(a)
         usage()
 
-    if func == 'cli' and cmd is None:
-        print >>sys.stderr, 'Please provide command'
-        usage()
-
-    if func == 'script' and cmd is None:
-        print >>sys.stderr, 'Please provide path to script with -c|--command'
-        usage()
+    set_logging(logfile)
 
     run (func, schedule, cmd, wf, wof, timeout, ignore, script_param)
 
 # Signal handler
 def master_timeout(signum, frame):
-    print 'Timeout reached - exiting'
+    logging.error('Timeout reached - exiting')
     sys.exit(1)
 
 # When timeout happens master_timeout definition executes raising an exception
@@ -164,7 +170,7 @@ def func_ping_response (responses):
         response_time = round( (time.time() - float(output)) * 1000, 2 )
         response_str = hostname + ' time=' + str(response_time) + ' ms'
 
-        print response_str
+        logging.info(response_str)
 
 def func_cli_response (responses):
     for response in responses:
@@ -174,7 +180,7 @@ def func_cli_response (responses):
 
         response_str = '>>>>>> ' + hostname + ' exit code: ('+str(rc)+'):\n' +  str(output)
 
-        print response_str
+        logging.info(response_str)
 
 def receive_responses (read_queue, org_ids, func, timeout, display, discovered=None):
 
@@ -236,13 +242,13 @@ def pull_msgs (read_queue, org_ids, org_func, old_msgs, agent_msgs):
         if hostname in agent_msgs:
             old_msgs[rmsg.id] = rmsg.id
             if not read_queue.delete_message(rmsg):
-                print 'Failed to delete reponse message'
+                logging.error('Failed to delete reponse message')
             continue
         else:
             agent_msgs[hostname] = hostname
 
         if ( org_func != func ):
-            print 'Type differs from original! (' + str(org_func) + ') != (' + str(func) + ')' ' - skipping'
+            logging.error('Type differs from original! (' + str(org_func) + ') != (' + str(func) + ')' ' - skipping')
             old_msgs[rmsg.id] = rmsg.id
             continue
 
@@ -250,7 +256,7 @@ def pull_msgs (read_queue, org_ids, org_func, old_msgs, agent_msgs):
 
         # We're done with the message - delete it
         if not read_queue.delete_message(rmsg):
-            print 'Failed to delete reponse message'
+            logging.error('Failed to delete reponse message')
 
     # Retrun all responses
     return (responses, old_msgs, agent_msgs)
@@ -275,7 +281,7 @@ def pull_org_msgs(write_queue, msg_ids):
     
         if wmsg.id in msg_ids:
             if not write_queue.delete_message(wmsg):
-                print 'Failed to original reponse message'
+                logging.error('Failed to original reponse message')
                 continue
             else:
                 del msg_ids[wmsg.id]
@@ -293,7 +299,7 @@ def dict_to_sqs_obj(message, write_queue):
     try:
         message = write_queue.new_message(message_json)
     except:
-        print 'Failed to create message object - check queue name'
+        logging.error('Failed to create message object - check queue name')
         sys.exit(1)
 
     return message
@@ -308,11 +314,11 @@ def write_msg (write_queue, dict_message):
         try:
             org = write_queue.write(message)
         except:
-            print 'Failed to write command message'
+            logging.error('Failed to write command message')
             sys.exit(1)
 
         if org.id is None:
-            print 'Failed to write 1 command message'
+            logging.error('Failed to write 1 command message')
         else:
             written=True
             org_ids[org.id] = org.id
@@ -320,12 +326,12 @@ def write_msg (write_queue, dict_message):
     if written is True:
         return org_ids
     else:
-        print 'Failed to write any command messages'
+        logging.error('Failed to write any command messages')
         sys.exit(1)
 
 def inhale_script (script_file):
     if not os.path.exists(script_file):
-        print script_file + ' file does not exist'
+        logging.error(str(script_file) + ' file does not exist')
         sys.exit(1)
 
     f = open(script_file, 'r')
@@ -349,14 +355,14 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
     try:
         conn = connect_to_region(CFG['aws']['region'])
     except:
-        print 'Could not connect to SQS - check your authentication'
+        logging.error('Could not connect to SQS - check your authentication')
         sys.exit(1)
 
     write_queue = conn.get_queue(CFG['aws']['write_queue'])
     read_queue = conn.get_queue(CFG['aws']['read_queue'])
 
     if write_queue is None or read_queue is None:
-        print 'Unable to get queue by name'
+        logging.error('Unable to get queue by name')
         sys.exit(1)
 
     # Construct message
@@ -367,7 +373,7 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
         org_ids.update (write_msg(write_queue, message))
 
         responses = receive_responses (read_queue, org_ids, func, timeout, 'nodisplay')
-	print str(len(responses))
+	logging.info(str(len(responses)))
 
     if func == 'ping' or func == 'discovery':
         org_ids.update (write_msg(write_queue, message))
@@ -416,14 +422,22 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
     # Delete original messags
     delete_org_message (write_queue, org_ids)
 
-    if ignore is False and len(ping_responses) != len(responses):
+    if func in ['cli', 'script', 's3'] and ignore is False and len(ping_responses) != len(responses):
         for hostname in ping_responses.keys():
             if not hostname in responses:
-                print 'Timeout in response from: ' + hostname
+                logging.warn('Timeout in response from: ' + hostname)
+
+        # If some of the expected servers did not answer we exit 1
+        sys.exit(1)
 
     if func is not 'count':
-        print 'Got response from ' + str(len(responses)) + ' out of ' + str(len(ping_responses)) + ' (expected)'
+        logging.info('Got response from ' + str(len(responses)) + ' out of ' + str(len(ping_responses)) + ' (discovered)')
 
+    # If we had no matches we exit non 1
+    if len(responses) == 0:
+        sys.exit(1)
+    else:
+        sys.exit(0)
 
 if __name__ == "__main__":
     sys.exit(main())
