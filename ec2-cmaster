@@ -290,7 +290,7 @@ def pull_org_msgs(write_queue, msg_ids):
     
         if wmsg.id in msg_ids:
             if not write_queue.delete_message(wmsg):
-                logging.error('Failed to original reponse message')
+                logging.error('Failed to delete original command message')
                 continue
             else:
                 del msg_ids[wmsg.id]

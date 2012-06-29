@@ -346,7 +346,12 @@ def receive_queue_msg ( task_queue, done_queue ):
 def write_sqs_msg (response, sqs_write_queue):
  
     response=json.dumps(response)
-    message = sqs_write_queue.new_message(response)
+
+    try:
+        message = sqs_write_queue.new_message(response)
+    except:
+        logging.error('Failed to create message object - check queue name')
+        return False
 
     if len(message) >= 65536:
         logging.error ('Response message is too big to put on SQS')
@@ -358,8 +363,11 @@ def write_sqs_msg (response, sqs_write_queue):
         org = sqs_write_queue.write(message)
         if org.id is None and written is False:
             logging.error ('Failed to write response message to SQS')
+            time.sleep(1)
         else:
             logging.debug('Wrote response to SQS')
+            # Remove to send multiple responses
+            return True
             written=True
 
     return written
