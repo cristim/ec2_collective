@@ -347,6 +347,10 @@ def write_sqs_msg (response, sqs_write_queue):
  
     response=json.dumps(response)
     message = sqs_write_queue.new_message(response)
+
+    if len(message) >= 65536:
+        logging.error ('Response message is too big to put on SQS')
+        return False
     
     # Write message 5 times to make sure receiver gets it
     written=False

@@ -305,6 +305,11 @@ def id_generator(size=10, chars=string.ascii_uppercase + string.digits):
 def dict_to_sqs_obj(message, write_queue):
 
     message_json=json.dumps(message)
+
+    if len(message) >= 65536:
+        logging.error ('Message is too big to put on SQS')
+        sys.exit(1)
+
     try:
         message = write_queue.new_message(message_json)
     except:
