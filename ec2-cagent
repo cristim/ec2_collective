@@ -606,6 +606,8 @@ def schedule_receive_sqs_msg(sqs_read_queue, task_queue, yaml_queue, scheduled_q
                         for timer in t:
                             logging.debug('Resetting SQS attention timer')
                             timer.cancel()
+                            timer.join(1.0)
+                            t.remove(timer)
                         t_init = Timer(CFG['general']['sqs_att_poll_period'], sqs_poll_slow_down, (poll_control_queue,))
                         t_init.daemon=True
                         t_init.start()
