@@ -136,7 +136,11 @@ def get_yaml_facts (yaml_queue, force_load=False):
                 data_from_file = yaml.safe_load(f)
             except:
                 logging.error('Error while loading yaml from file (format problems) ' + str(yaml_file))
-                continue
+                if force_load is True:
+                    continue
+                else:
+                    logging.error('Skipping reload of facts completely')
+                    return False
 
             if type(data_from_file) is str:
                 logging.debug('Facts file looks to be string ' + str(yaml_file))
