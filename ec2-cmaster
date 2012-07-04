@@ -171,7 +171,7 @@ signal.signal(signal.SIGALRM, master_timeout)
 def response_disect(responses, mode, pingcount=0, cmdcount=0 ):
 
     for response in responses:
-        if responses[response]['mode'] == 'ping':
+        if responses[response]['mode'] in ['ping', 'count']:
             pingcount += 1
             if mode == 'ping':
                 mode_ping_response (responses[response])
@@ -266,6 +266,8 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
         # We're done with the message - delete it
         if not read_queue.delete_message(rmsg):
             logging.error('Failed to delete reponse message')
+
+        logging.debug(response)
 
     # Retrun all responses
     return (responses, old_msgs)
@@ -364,7 +366,6 @@ def run(mode, schedule, cmd, wf, wof, timeout, script_param):
     responses={}
     ping_responses={}
     org_ids={}
-    discovered=None
 
     # Connect with key, secret and region
     try:
@@ -407,6 +408,8 @@ def run(mode, schedule, cmd, wf, wof, timeout, script_param):
 
     if mode is not 'count':
         logging.info('Got response from ' + str(cmdcount) + ' out of ' + str(pingcount) + ' (discovered)' + ' - exit code ('+str(MASTER_EC)+')')
+        sys.exit(MASTER_EC)
+    else:
         sys.exit(MASTER_EC)
 
 if __name__ == "__main__":

@@ -323,22 +323,20 @@ def process_msg ( message ):
     mode = str(message['mode'])
     ts = str(message['ts'])
 
-    logging.info("Performing ping reply")
-    response={'mode': 'ping', 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
-    done_queue.put(response)
-
     if mode in ['ping', 'count']:
-        return False
+        logging.info('Performing ' + str(mode) + ' reply')
+        response={'mode': mode, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+        return response
+    else:
+        logging.info("Performing ping reply - for discovery purpose")
+        response={'mode': 'ping', 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname(), 'discovery':1};
+        done_queue.put(response)
 
     # If this is a scheduled task
     if 'is_scheduled' in message and message['is_scheduled'] is True:
         logging.info('Responding to scheduled task')
         response={'mode': mode, 'output': 'Task scheduled...', 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
         return response
-
-    if mode == 'count' :
-        logging.info("Performing count reply")
-        response={'mode': mode, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
     elif mode == 'cli':
         logging.info("Performing command execution")
         response = cli_mode(message)
@@ -356,9 +354,7 @@ def receive_queue_msg ( ):
 
     for message in iter(task_queue.get, 'STOP'):
         logging.debug('Task read from task queue')
-        response = process_msg(message)
-        if response is not False:
-            done_queue.put(response)
+        done_queue.put(process_msg(message))
 
     logging.debug('Worker received STOP signal - terminating')
 
@@ -557,7 +553,11 @@ def check_done_queue(sqs_write_queue):
             response = done_queue.get(False)
             logging.debug('Response read from done queue')
             write_sqs_msg (response, sqs_write_queue)
-            task_queue.put('STOP')
+
+            if 'discovery' in response and response['discovery'] == 1:
+                logging.debug('Discovery message sent - not stopping worker')
+            else:
+                task_queue.put('STOP')
         except Empty:
             logging.debug('Done queue is empty')
 
