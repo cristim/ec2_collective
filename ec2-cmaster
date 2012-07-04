@@ -54,7 +54,7 @@ def set_logging(logfile=False):
     ch  = logging.StreamHandler()
     log.addHandler(ch)
      
-    log.setLevel(logging.DEBUG)  
+    log.setLevel(logging.INFO)  
 
 def usage():
     print >>sys.stderr, '    Usage:'
