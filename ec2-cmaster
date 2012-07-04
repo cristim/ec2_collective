@@ -53,8 +53,17 @@ def set_logging(logfile=False):
      
     ch  = logging.StreamHandler()
     log.addHandler(ch)
-     
-    log.setLevel(logging.INFO)  
+
+    if CFG['general']['log_level'] == 'INFO':
+        logging.getLogger().setLevel(logging.INFO)
+    elif CFG['general']['log_level'] == 'WARN':
+        logging.getLogger().setLevel(logging.WARNING)
+    elif CFG['general']['log_level'] == 'ERROR':
+        logging.getLogger().setLevel(logging.ERROR)
+    elif CFG['general']['log_level'] == 'DEBUG':
+        logging.getLogger().setLevel(logging.DEBUG)
+    elif CFG['general']['log_level'] == 'CRITICAL':
+        logging.getLogger().setLevel(logging.CRITICAL)
 
 def usage():
     print >>sys.stderr, '    Usage:'
@@ -190,6 +199,7 @@ def mode_cmd_response (response):
     rc = str(response['rc'])
 
     if int(rc) != 0:
+	logging.debug('Setting master exit code to ' + str(rc) + ' in mode_cmd_response')
         MASTER_EC = int(rc)
 
     response_str = '>>>>>> ' + hostname + ' exit code: ('+str(rc)+'):\n' +  str(output)
@@ -382,15 +392,17 @@ def run(mode, schedule, cmd, wf, wof, timeout, script_param):
     # Delete original messags
     delete_org_message (write_queue, org_ids)
 
-    if mode in ['cli', 'script', 's3'] and pingcount != cmdcount:
+    if mode in ['cli', 'script', 's3'] and pingcount > cmdcount:
         for hostname in ping_responses.keys():
             if not hostname in responses:
                 logging.info('Timeout in response from: ' + hostname)
 
         # If some of the expected servers did not answer we exit 1
+	logging.debug('Setting master exit code to 1 because discovery and response count differ')
         MASTER_EC=1
 
-    if len(responses) == 0:
+    if cmdcount == 0 and pingcount == 0:
+	logging.debug('Setting master exit code to 1 because of no responses' )
         MASTER_EC=1
 
     if mode is not 'count':
