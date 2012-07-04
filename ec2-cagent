@@ -38,6 +38,13 @@ except pkg_resources.VersionConflict:
 
 CFILE='/etc/ec2_collective/ec2-cagent.json'
 
+# Create queues
+task_queue = Queue()
+done_queue = Queue()
+scheduled_queue = Queue()
+yaml_queue = Queue()
+poll_control_queue = Queue()
+
 def terminate_process(signum, frame):
     logging.info ('Process asked to exit...')
     sys.exit(0)
@@ -97,7 +104,7 @@ def initialize():
 
     return (foreground, logfile, pidfile)
 
-def get_yaml_facts (yaml_queue, force_load=False):
+def get_yaml_facts (force_load=False):
     logging.debug('Looking for new facts')
  
     # Define dict for storage
@@ -164,7 +171,7 @@ def get_yaml_facts (yaml_queue, force_load=False):
         logging.debug('Facts are empty')
         return False
 
-def cli_func (message):
+def cli_mode (message):
 
 	try:
            logging.debug ('Executing: ' + str(message['cmd']))
@@ -176,7 +183,7 @@ def cli_func (message):
             output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
             rc = e.errno 
 
-        response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+        response={'mode': message['mode'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
         return response
 
 def write_to_file (payload, identifier):
@@ -224,17 +231,17 @@ def fetch_s3_file ( s3_path, identifier ):
 
     return write_to_file(payload, identifier )
 
-def script_func (message):
+def script_mode (message):
 
     # Put script on filesystem
-    if message['func'] == 's3':
+    if message['mode'] == 's3':
         (file_written, script_file ) = fetch_s3_file(message['cmd'], message['batch_msg_id'])
     else:
         (file_written, script_file ) = write_to_file(message['payload'], message['batch_msg_id'])
 
     if file_written is False:
         # script_file will include error message
-        response={'func': message['func'], 'output': script_file, 'rc': '255', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+        response={'mode': message['mode'], 'output': script_file, 'rc': '255', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
         return response
   
     command=script_file 
@@ -260,10 +267,10 @@ def script_func (message):
     except OSError, e:
         logging.error ('Failed to delete script file ' + script_file + ' (%d) %s \n' % (e.errno, e.strerror))
 
-    response={'func': message['func'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+    response={'mode': message['mode'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
     return response
 
-def receive_sqs_msg ( sqs_read_queue, task_queue, poll_control_queue, yaml_facts, scheduled_queue ):
+def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
     global READ_MSGS
     global READ_MSGS_LTS
 
@@ -298,7 +305,7 @@ def receive_sqs_msg ( sqs_read_queue, task_queue, poll_control_queue, yaml_facts
 
         logging.debug('New valid SQS message received')
 
-        if int(message['schedule']) > time.time() and message['func'] not in [ 'discovery', 'ping', 'count' ]:
+        if int(message['schedule']) > time.time() and message['mode'] not in [ 'ping', 'count' ]:
             logging.debug('Putting SQS message on scheduled queue and task queue')
             scheduled_queue.put(message)
             message['is_scheduled']=True
@@ -313,37 +320,45 @@ def receive_sqs_msg ( sqs_read_queue, task_queue, poll_control_queue, yaml_facts
 def process_msg ( message ):
 
     cmd_str = str(message['cmd'])
-    func = str(message['func'])
+    mode = str(message['mode'])
     ts = str(message['ts'])
+
+    logging.info("Performing ping reply")
+    response={'mode': 'ping', 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+    done_queue.put(response)
+
+    if mode in ['ping', 'count']:
+        return False
 
     # If this is a scheduled task
     if 'is_scheduled' in message and message['is_scheduled'] is True:
         logging.info('Responding to scheduled task')
-        response={'func': func, 'output': 'Task scheduled...', 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+        response={'mode': mode, 'output': 'Task scheduled...', 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
         return response
 
-    if func in [ 'discovery', 'ping', 'count' ]:
-        logging.info("Performing ping reply")
-        response={'func': func, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
-    elif func == 'cli':
+    if mode == 'count' :
+        logging.info("Performing count reply")
+        response={'mode': mode, 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+    elif mode == 'cli':
         logging.info("Performing command execution")
-        response = cli_func(message)
-    elif func in [ 'script', 's3' ]:
-        logging.info('Performing ' + func + ' execution')
-        response = script_func (message) 
+        response = cli_mode(message)
+    elif mode in [ 'script', 's3' ]:
+        logging.info('Performing ' + mode + ' execution')
+        response = script_mode (message) 
     else:
-        logging.error('Unknown functionality: ' + func)
+        logging.error('Unknown mode: ' + mode)
         response =  'Unknown command ' + cmd_str
-        response={'func': func, 'output': response, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+        response={'mode': mode, 'output': response, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
 
     return response
 
-def receive_queue_msg ( task_queue, done_queue ):
+def receive_queue_msg ( ):
 
     for message in iter(task_queue.get, 'STOP'):
         logging.debug('Task read from task queue')
         response = process_msg(message)
-        done_queue.put(response)
+        if response is not False:
+            done_queue.put(response)
 
     logging.debug('Worker received STOP signal - terminating')
 
@@ -506,14 +521,14 @@ def fact_lookup (wf, wof, yaml_facts ):
         logging.debug('No match - wf filter')
         return True
 
-def fork_worker(task_queue, done_queue ):
+def fork_worker():
     # process control
-    P = Process(target=receive_queue_msg, args=(task_queue, done_queue ))
+    P = Process(target=receive_queue_msg, args=())
     P.daemon=True
     P.start()
     logging.debug('Forking worker with pid ' + str(P.pid))
 
-def check_scheduled_queue(scheduled_queue):
+def check_scheduled_queue():
     logging.debug('Checking scheduled queue')
 
     if scheduled_queue.qsize() > 0:
@@ -529,12 +544,12 @@ def check_scheduled_queue(scheduled_queue):
         except Empty:
             logging.debug('scheduled_queue is empty')
 
-def check_task_queue(task_queue, done_queue):
+def check_task_queue():
     logging.debug('Checking task queue')
     if task_queue.qsize() > 0:
-        fork_worker(task_queue, done_queue )
+        fork_worker()
 
-def check_done_queue(task_queue, done_queue, sqs_write_queue):
+def check_done_queue(sqs_write_queue):
     logging.debug('Checking done queue')
 
     if done_queue.qsize() > 0:
@@ -546,21 +561,21 @@ def check_done_queue(task_queue, done_queue, sqs_write_queue):
         except Empty:
             logging.debug('Done queue is empty')
 
-def schedule_check_done_queue(task_queue, done_queue, sqs_write_queue):
+def schedule_check_done_queue(sqs_write_queue):
     s = sched.scheduler(time.time, time.sleep)
 
     try:
         while True:
-            s.enter(CFG['general']['sqs_att_poll_interval'], 1, check_done_queue, (task_queue, done_queue, sqs_write_queue))
+            s.enter(CFG['general']['sqs_att_poll_interval'], 1, check_done_queue, (sqs_write_queue,))
             s.run()
 
     except (KeyboardInterrupt, SystemExit):
         logging.info('Done queue checker process exiting...')
         sys.exit(0)
 
-def fork_check_done_queue(task_queue, done_queue, sqs_write_queue):
+def fork_check_done_queue(sqs_write_queue):
     # process control
-    P = Process(target=schedule_check_done_queue, args=(task_queue, done_queue, sqs_write_queue))
+    P = Process(target=schedule_check_done_queue, args=(sqs_write_queue,))
     P.daemon=True
     P.start()
     logging.debug('Forking worker to handle sqs queue with pid ' + str(P.pid))
@@ -571,11 +586,10 @@ def fork_check_done_queue(task_queue, done_queue, sqs_write_queue):
 
     return P
 
-def sqs_poll_slow_down(poll_control_queue):
+def sqs_poll_slow_down():
     poll_control_queue.put(CFG['general']['sqs_poll_interval'])
 
-def schedule_receive_sqs_msg(sqs_read_queue, task_queue, yaml_queue, scheduled_queue):
-    poll_control_queue = Queue()
+def schedule_receive_sqs_msg(sqs_read_queue):
 
     s = sched.scheduler(time.time, time.sleep)
     t = []
@@ -597,7 +611,7 @@ def schedule_receive_sqs_msg(sqs_read_queue, task_queue, yaml_queue, scheduled_q
                 except Empty:
                     logging.debug('Yaml queue is empty')
 
-            s.enter(sqs_poll_interval, 1, receive_sqs_msg, (sqs_read_queue, task_queue, poll_control_queue, yaml_facts, scheduled_queue))
+            s.enter(sqs_poll_interval, 1, receive_sqs_msg, (sqs_read_queue, yaml_facts))
             s.run()
 
             # Check if we need to decrease poll sime 
@@ -612,7 +626,7 @@ def schedule_receive_sqs_msg(sqs_read_queue, task_queue, yaml_queue, scheduled_q
                             timer.cancel()
                             timer.join(1.0)
                             t.remove(timer)
-                        t_init = Timer(CFG['general']['sqs_att_poll_period'], sqs_poll_slow_down, (poll_control_queue,))
+                        t_init = Timer(CFG['general']['sqs_att_poll_period'], sqs_poll_slow_down, ())
                         t_init.daemon=True
                         t_init.start()
                         t.append(t_init)
@@ -633,9 +647,9 @@ def schedule_receive_sqs_msg(sqs_read_queue, task_queue, yaml_queue, scheduled_q
         logging.info('Receive sqs messages process exiting...')
         sys.exit(0)
 
-def fork_receive_sqs_msg(sqs_read_queue, task_queue, yaml_queue, scheduled_queue):
+def fork_receive_sqs_msg(sqs_read_queue):
     # process control
-    P = Process(target=schedule_receive_sqs_msg, args=(sqs_read_queue, task_queue, yaml_queue, scheduled_queue))
+    P = Process(target=schedule_receive_sqs_msg, args=(sqs_read_queue,))
     P.daemon=True
     P.start()
     logging.debug('Forking worker to handle sqs queue with pid ' + str(P.pid))
@@ -662,18 +676,13 @@ def main ():
         logging.error('Unable to get queue by name')
         sys.exit(1)
 
-    # Create queues
-    task_queue = Queue()
-    done_queue = Queue()
-    scheduled_queue = Queue()
-    yaml_queue = Queue()
 
     # Lets get those facsts ( it's a string not a boolean )
     if CFG['general']['yaml_facts'] == 'True':
-        get_yaml_facts(yaml_queue, True)
+        get_yaml_facts(True)
 
         # Schedule a refresh
-        t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, (yaml_queue,))
+        t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, ())
         t_yaml_facts.daemon=True
         t_yaml_facts.start()
 
@@ -681,12 +690,12 @@ def main ():
     main_task_sched = sched.scheduler(time.time, time.sleep)
 
     # fork processes for sqs queue check and done queue checking
-    proc_receiver=fork_receive_sqs_msg(sqs_read_queue, task_queue, yaml_queue, scheduled_queue)
-    proc_done_queue=fork_check_done_queue(task_queue, done_queue, sqs_write_queue)
+    proc_receiver=fork_receive_sqs_msg(sqs_read_queue)
+    proc_done_queue=fork_check_done_queue(sqs_write_queue)
 
     while ( True ):
-        main_task_sched.enter(0.1, 1, check_task_queue, (task_queue, done_queue ))
-        main_task_sched.enter(0.1, 2, check_scheduled_queue, (scheduled_queue, ))
+        main_task_sched.enter(0.1, 1, check_task_queue, ())
+        main_task_sched.enter(0.1, 2, check_scheduled_queue, ( ))
         main_task_sched.run()
 
         # Calling active_children will also make sure that we clean up old hanging children
@@ -694,17 +703,17 @@ def main ():
         logging.debug(str(running_children) + ' active children')
 
         if CFG['general']['yaml_facts'] == 'True' and not t_yaml_facts.is_alive():
-            t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, (yaml_queue,))
+            t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, ())
             t_yaml_facts.daemon=True
             t_yaml_facts.start()
 
         if not proc_receiver.is_alive():
            logging.error ('SQS receiver process just died - restarting')
-           proc_receiver=fork_receive_sqs_msg(sqs_read_queue, task_queue, yaml_queue, scheduled_queue)
+           proc_receiver=fork_receive_sqs_msg(sqs_read_queue)
 
         if not proc_done_queue.is_alive():
            logging.error ('Done queue checker process just died - restarting')
-           proc_done_queue=fork_check_done_queue(task_queue, done_queue, sqs_write_queue)
+           proc_done_queue=fork_check_done_queue(sqs_write_queue)
 
 if __name__ == "__main__":
 

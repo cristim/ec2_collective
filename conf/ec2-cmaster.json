@@ -1,6 +1,6 @@
 { 
     "general": {
-        "default_timeout": 10,
+        "cmd_timeout": 10,
         "ping_timeout": 5,
         "clean_timeout": 15
     },

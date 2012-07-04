@@ -37,6 +37,7 @@ def get_config():
 def set_logging(logfile=False):
 
     log = logging.getLogger()
+    logging.getLogger('boto').setLevel(logging.CRITICAL)
 
     if logfile is not False:
 
@@ -53,7 +54,7 @@ def set_logging(logfile=False):
     ch  = logging.StreamHandler()
     log.addHandler(ch)
      
-    log.setLevel(logging.INFO)  
+    log.setLevel(logging.DEBUG)  
 
 def usage():
     print >>sys.stderr, '    Usage:'
@@ -65,7 +66,6 @@ def usage():
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c s3://bucket/script\tAsk agent to fetch script from s3 and execute'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c [file://|s3://] -p arg1 arg2\tSend arguments to file:// or s3:// scripts'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -m \tGet a count on responding hosts'
-    print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -i\tIgnore i.e. fire and forget mode'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -q <queue name> -c <command>\tOverwrite default SQS queue name'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -t <seconds>\tOverwrite default timeout for agent to respond'
     sys.exit(1)
@@ -79,19 +79,18 @@ def main():
     get_config()
 
     # Defaults
-    func='ping'
+    mode='ping'
     schedule=time.time()
     cmd=None
     wf=None
     wof=None
-    timeout=int(CFG['general']['default_timeout'])
+    timeout=int(CFG['general']['cmd_timeout'])
     timeout_set = False
-    ignore=False
     script_param=None
     logfile=False
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'hs:c:w:n:t:ip:q:ml:', ['help', 'schedule=', 'command=', 'wf=', 'wc=', 'wof=', 'timeout=', 'ignore', 'script-parameters=', 'sqs-queue=', 'monitor', 'logfile='])
+        opts, args = getopt.getopt(sys.argv[1:], 'hs:c:w:n:t:p:q:ml:', ['help', 'schedule=', 'command=', 'wf=', 'wc=', 'wof=', 'timeout=', 'script-parameters=', 'sqs-queue=', 'monitor', 'logfile='])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -106,13 +105,13 @@ def main():
         elif o in ('-c', '--command'):
             cmd = a
             if 'file://' in cmd:
-                func='script'
+                mode='script'
                 cmd = cmd[7:]
             elif 's3://' in cmd:
-                func='s3'
+                mode='s3'
                 cmd = cmd[5:]
             else:
-                func='cli'
+                mode='cli'
         elif o in ('-w', '--wf', '--wc'):
             if wf is not None:
                 wf = wf + ',' + a
@@ -130,32 +129,27 @@ def main():
             except:
                 print 'Timeout value is not an integer'
                 sys.exit(1)
-        elif o in ('-i', '--ignore'):
-            ignore = True
-            if timeout_set is False:
-                # We allow a 5 second response time unless something else is set
-                timeout = 5
         elif o in ('-p', '--script-parameters'):
-            if func in ['script', 's3']:
+            if mode in ['script', 's3']:
                 script_param = a
         elif o in ('-q', '--sqs-queue'):
             CFG['aws']['write_queue'] = str(a)
         elif o in ('-m', '--monitor'):
-            func='count'
+            mode='count'
         elif o in ('-l', '--logfile'):
             logfile=a
 
-    if func is None:
-        print >>sys.stderr, 'Please provide function'
+    if mode is None:
+        print >>sys.stderr, 'Please provide modetion'
         usage()
 
-    if func not in ['ping', 'count', 'cli', 'script', 's3' ]:
-        print 'Uknown function: ' + str(a)
+    if mode not in ['ping', 'count', 'cli', 'script', 's3' ]:
+        print 'Uknown mode: ' + str(a)
         usage()
 
     set_logging(logfile)
 
-    run (func, schedule, cmd, wf, wof, timeout, ignore, script_param)
+    run (mode, schedule, cmd, wf, wof, timeout, script_param)
 
 # Signal handler
 def master_timeout(signum, frame):
@@ -165,62 +159,73 @@ def master_timeout(signum, frame):
 # When timeout happens master_timeout definition executes raising an exception
 signal.signal(signal.SIGALRM, master_timeout)
 
-def func_ping_response (responses):
+def response_disect(responses, mode, pingcount=0, cmdcount=0 ):
+
     for response in responses:
-        hostname = str(responses[response]['hostname'])
-        output = str(responses[response]['output'])
+        if responses[response]['mode'] == 'ping':
+            pingcount += 1
+            if mode == 'ping':
+                mode_ping_response (responses[response])
+        else:
+            cmdcount += 1
+            mode_cmd_response (responses[response])
 
-        response_time = round( (time.time() - float(output)) * 1000, 2 )
-        response_str = hostname + ' time=' + str(response_time) + ' ms'
+    return (pingcount, cmdcount)
 
-        logging.info(response_str)
+def mode_ping_response (response):
+    hostname = str(response['hostname'])
+    output = str(response['output'])
 
-def func_cli_response (responses):
+    response_time = round( (time.time() - float(output)) * 1000, 2 )
+    response_str = hostname + ' time=' + str(response_time) + ' ms'
+
+    logging.info(response_str)
+
+def mode_cmd_response (response):
 
     global MASTER_EC
 
-    for response in responses:
-        hostname = str(responses[response]['hostname'])
-        output = str(responses[response]['output'])
-        rc = str(responses[response]['rc'])
+    hostname = str(response['hostname'])
+    output = str(response['output'])
+    rc = str(response['rc'])
 
-        if int(responses[response]['rc']) != 0:
-            MASTER_EC = responses[response]['rc']
+    if int(rc) != 0:
+        MASTER_EC = int(rc)
 
-        response_str = '>>>>>> ' + hostname + ' exit code: ('+str(rc)+'):\n' +  str(output)
+    response_str = '>>>>>> ' + hostname + ' exit code: ('+str(rc)+'):\n' +  str(output)
 
-        logging.info(response_str)
+    logging.info(response_str)
 
-def receive_responses (read_queue, org_ids, func, timeout, display, discovered=None):
+def receive_responses (read_queue, org_ids, mode, timeout ):
 
-    if func in [ 'ping','discovery','count']:
+    if mode in [ 'ping','count' ]:
         timeout=CFG['general']['ping_timeout']
+
+    ptimeout=CFG['general']['ping_timeout']
 
     total_responses = {}
     old_msgs = {}
     agent_msgs = {}
+    pingcount=0
+    cmdcount=0
 
     start_time=int(time.time())
     while ( True ):
-        responses, old_msgs, agents_msgs = pull_msgs (read_queue, org_ids, func, old_msgs, agent_msgs)
+        responses, old_msgs = pull_msgs (read_queue, org_ids, old_msgs)
         if len(responses) > 0:
-            total_responses.update(responses)
+            (pingcount, cmdcount) = response_disect(responses, mode, pingcount, cmdcount )
 
-            if func in [ 'ping','discovery','count'] and display == 'display':
-                func_ping_response(responses)
-
-            if func in ['cli', 'script','s3' ] and display == 'display':
-                func_cli_response(responses)
-
-        if discovered is not None and len(total_responses) >= discovered:
+        if ((int(time.time()) - start_time) >= ptimeout and pingcount == cmdcount):
+            logging.debug('Ping timeout reached (' + str(ptimeout) + ') and got response from all')
             break
 
         if ((int(time.time()) - start_time) >= timeout):
+            logging.debug('cmd timeout reached ' + str(timeout) )
             break
 
-    return total_responses
+    return (pingcount, cmdcount)
 
-def pull_msgs (read_queue, org_ids, org_func, old_msgs, agent_msgs):
+def pull_msgs (read_queue, org_ids, old_msgs ):
 
     response = None
     responses = {}
@@ -239,8 +244,6 @@ def pull_msgs (read_queue, org_ids, org_func, old_msgs, agent_msgs):
 
         response=json.loads(rmsg.get_body())
         msg_id = str(response['msg_id'])
-        func = str(response['func'])
-        hostname = str(response['hostname'])
 
         # Is it a response to our original request
         if msg_id not in org_ids:
@@ -248,27 +251,14 @@ def pull_msgs (read_queue, org_ids, org_func, old_msgs, agent_msgs):
             old_msgs[rmsg.id] = rmsg.id
             continue
 
-        if hostname in agent_msgs:
-            old_msgs[rmsg.id] = rmsg.id
-            if not read_queue.delete_message(rmsg):
-                logging.error('Failed to delete reponse message')
-            continue
-        else:
-            agent_msgs[hostname] = hostname
-
-        if ( org_func != func ):
-            logging.error('Type differs from original! (' + str(org_func) + ') != (' + str(func) + ')' ' - skipping')
-            old_msgs[rmsg.id] = rmsg.id
-            continue
-
-        responses[hostname] = response
+        responses[msg_id] = response
 
         # We're done with the message - delete it
         if not read_queue.delete_message(rmsg):
             logging.error('Failed to delete reponse message')
 
     # Retrun all responses
-    return (responses, old_msgs, agent_msgs)
+    return (responses, old_msgs)
 
 def delete_org_message (write_queue, msg_ids):
 
@@ -352,12 +342,12 @@ def inhale_script (script_file):
 
     return f.read()
 
-def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
+def run(mode, schedule, cmd, wf, wof, timeout, script_param):
     global MASTER_EC
 
     payload = None
 
-    if func == 'script':
+    if mode == 'script':
         payload = inhale_script(cmd)
         cmd = os.path.basename(cmd)
 
@@ -380,67 +370,22 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
         logging.error('Unable to get queue by name')
         sys.exit(1)
 
-    # Construct message
-    message={'func':func,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator(), 'payload':payload, 'script_param':script_param}
+    # Construct message, send and receive
+    message={'mode':mode,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
+    org_ids.update (write_msg(write_queue, message))
+    (pingcount, cmdcount) = receive_responses (read_queue, org_ids, mode, timeout)
 
     # 15 second initial timeout  
-    if func == 'count':
-        org_ids.update (write_msg(write_queue, message))
-
-        responses = receive_responses (read_queue, org_ids, func, timeout, 'nodisplay')
-	logging.info(str(len(responses)))
-
-    if func == 'ping' or func == 'discovery':
-        org_ids.update (write_msg(write_queue, message))
-        responses = receive_responses (read_queue, org_ids, func, timeout, 'display')
-
-    if func == 'cli':
-
-        # If ignore is True then we fire and forget
-        if ignore is False:
-            # Perform a ping to figure out how many replies to expect
-            message['func'] = 'count'
-            count_ids =  (write_msg(write_queue, message))
-            org_ids.update (count_ids)
-            ping_responses = receive_responses (read_queue, count_ids, 'count', timeout, 'nodisplay')
-            discovered=len(ping_responses)
-        else:
-            discovered=None
-            
-        # Perform the actual command wait for all agents to return until timeout
-        message['func'] = 'cli'
-        message['batch_msg_id'] = id_generator()
-        cli_ids =  (write_msg(write_queue, message))
-        org_ids.update (cli_ids)
-        responses = receive_responses (read_queue, cli_ids, func, timeout, 'display', discovered)
-
-    if func in [ 'script', 's3' ]:
-
-        # If ignore is True then we fire and forget
-        if ignore is False:
-            # Perform a ping to figure out how many replies to expect
-            message['func'] = 'count'
-            count_ids =  (write_msg(write_queue, message))
-            org_ids.update (count_ids)
-            ping_responses = receive_responses (read_queue, count_ids, 'count', timeout, 'nodisplay')
-            discovered=len(ping_responses)
-        else:
-            discovered=None
-
-        # Perform the actual command wait for all agents to return until timeout
-        message['func'] = func
-        message['batch_msg_id'] = id_generator()
-        cli_ids =  (write_msg(write_queue, message))
-        org_ids.update (cli_ids)
-        responses = receive_responses (read_queue, cli_ids, func, timeout, 'display', discovered)
+    if mode == 'count':
+	logging.info(str(pingcount))
 
     # Delete original messags
     delete_org_message (write_queue, org_ids)
 
-    if func in ['cli', 'script', 's3'] and ignore is False and len(ping_responses) != len(responses):
+    if mode in ['cli', 'script', 's3'] and pingcount != cmdcount:
         for hostname in ping_responses.keys():
             if not hostname in responses:
-                logging.warn('Timeout in response from: ' + hostname)
+                logging.info('Timeout in response from: ' + hostname)
 
         # If some of the expected servers did not answer we exit 1
         MASTER_EC=1
@@ -448,8 +393,8 @@ def run(func, schedule, cmd, wf, wof, timeout, ignore, script_param):
     if len(responses) == 0:
         MASTER_EC=1
 
-    if func is not 'count':
-        logging.info('Got response from ' + str(len(responses)) + ' out of ' + str(len(ping_responses)) + ' (discovered)' + ' - exit code ('+str(MASTER_EC)+')')
+    if mode is not 'count':
+        logging.info('Got response from ' + str(cmdcount) + ' out of ' + str(pingcount) + ' (discovered)' + ' - exit code ('+str(MASTER_EC)+')')
         sys.exit(MASTER_EC)
 
 if __name__ == "__main__":
