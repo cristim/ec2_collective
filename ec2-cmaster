@@ -233,6 +233,8 @@ def receive_responses (read_queue, org_ids, mode, timeout ):
             logging.debug('cmd timeout reached ' + str(timeout) )
             break
 
+    logging.debug('pingcount, cmdcount: ' + str(pingcount) + ', ' + str(cmdcount))
+
     return (pingcount, cmdcount)
 
 def pull_msgs (read_queue, org_ids, old_msgs ):
@@ -261,7 +263,7 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
             old_msgs[rmsg.id] = rmsg.id
             continue
 
-        responses[msg_id] = response
+        responses[rmsg.id] = response
 
         # We're done with the message - delete it
         if not read_queue.delete_message(rmsg):
@@ -269,6 +271,7 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
 
         logging.debug(response)
 
+    logging.debug('Returning: ' + str(len(responses)) + ' responses')
     # Retrun all responses
     return (responses, old_msgs)
 
