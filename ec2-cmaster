@@ -168,18 +168,18 @@ def master_timeout(signum, frame):
 # When timeout happens master_timeout definition executes raising an exception
 signal.signal(signal.SIGALRM, master_timeout)
 
-def response_disect(responses, mode, pingcount=0, cmdcount=0 ):
+def response_disect(responses, mode, pingresp, cmdresp ):
 
     for response in responses:
         if responses[response]['mode'] in ['ping', 'count']:
-            pingcount += 1
+            pingresp.append(responses[response]['hostname'])
             if mode == 'ping':
                 mode_ping_response (responses[response])
         else:
-            cmdcount += 1
+            cmdresp.append(responses[response]['hostname'])
             mode_cmd_response (responses[response])
 
-    return (pingcount, cmdcount)
+    return (pingresp, cmdresp)
 
 def mode_ping_response (response):
     hostname = str(response['hostname'])
@@ -216,16 +216,16 @@ def receive_responses (read_queue, org_ids, mode, timeout ):
     total_responses = {}
     old_msgs = {}
     agent_msgs = {}
-    pingcount=0
-    cmdcount=0
+    pingresp=[]
+    cmdresp=[]
 
     start_time=int(time.time())
     while ( True ):
         responses, old_msgs = pull_msgs (read_queue, org_ids, old_msgs)
         if len(responses) > 0:
-            (pingcount, cmdcount) = response_disect(responses, mode, pingcount, cmdcount )
+            (pingresp, cmdresp) = response_disect(responses, mode, pingresp, cmdresp )
 
-        if ((int(time.time()) - start_time) >= ptimeout and pingcount == cmdcount):
+        if (int(time.time()) - start_time) >= ptimeout and len(pingresp) == len(cmdresp):
             logging.debug('Ping timeout reached (' + str(ptimeout) + ') and got response from all')
             break
 
@@ -233,9 +233,9 @@ def receive_responses (read_queue, org_ids, mode, timeout ):
             logging.debug('cmd timeout reached ' + str(timeout) )
             break
 
-    logging.debug('pingcount, cmdcount: ' + str(pingcount) + ', ' + str(cmdcount))
+    logging.debug('pingresp, cmdresp: ' + str(len(pingresp)) + ', ' + str(len(cmdresp)))
 
-    return (pingcount, cmdcount)
+    return (pingresp, cmdresp)
 
 def pull_msgs (read_queue, org_ids, old_msgs ):
 
@@ -387,30 +387,30 @@ def run(mode, schedule, cmd, wf, wof, timeout, script_param):
     # Construct message, send and receive
     message={'mode':mode,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
     org_ids.update (write_msg(write_queue, message))
-    (pingcount, cmdcount) = receive_responses (read_queue, org_ids, mode, timeout)
+    (pingresp, cmdresp) = receive_responses (read_queue, org_ids, mode, timeout)
 
     # 15 second initial timeout  
     if mode == 'count':
-	logging.info(str(pingcount))
+	logging.info(str(len(pingresp)))
 
     # Delete original messags
     delete_org_message (write_queue, org_ids)
 
-    if mode in ['cli', 'script', 's3'] and pingcount > cmdcount:
-        for hostname in ping_responses.keys():
-            if not hostname in responses:
+    if mode in ['cli', 'script', 's3'] and len(pingresp) > len(cmdresp):
+        for hostname in pingresp:
+            if hostname not in cmdresp:
                 logging.info('Timeout in response from: ' + hostname)
 
         # If some of the expected servers did not answer we exit 1
 	logging.debug('Setting master exit code to 1 because discovery and response count differ')
         MASTER_EC=1
 
-    if cmdcount == 0 and pingcount == 0:
+    if cmdresp == 0 and pingresp == 0:
 	logging.debug('Setting master exit code to 1 because of no responses' )
         MASTER_EC=1
 
     if mode is not 'count':
-        logging.info('Got response from ' + str(cmdcount) + ' out of ' + str(pingcount) + ' (discovered)' + ' - exit code ('+str(MASTER_EC)+')')
+        logging.info('Got response from ' + str(len(cmdresp)) + ' out of ' + str(len(pingresp)) + ' (discovered)' + ' - exit code ('+str(MASTER_EC)+')')
         sys.exit(MASTER_EC)
     else:
         sys.exit(MASTER_EC)
