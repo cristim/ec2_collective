@@ -405,7 +405,7 @@ def run(mode, schedule, cmd, wf, wof, timeout, script_param):
 	logging.debug('Setting master exit code to 1 because discovery and response count differ')
         MASTER_EC=1
 
-    if cmdresp == 0 and pingresp == 0:
+    if len(cmdresp) == 0 and len(pingresp) == 0:
 	logging.debug('Setting master exit code to 1 because of no responses' )
         MASTER_EC=1
 
