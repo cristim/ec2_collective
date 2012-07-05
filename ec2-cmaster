@@ -51,7 +51,7 @@ def set_logging(logfile=False):
         fh_fmt = logging.Formatter("%(asctime)s %(message)s")
         fh.setFormatter(fh_fmt)
      
-    ch  = logging.StreamHandler()
+    ch  = logging.StreamHandler(sys.stdout)
     log.addHandler(ch)
 
     if CFG['general']['log_level'] == 'INFO':
