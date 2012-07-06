@@ -75,7 +75,7 @@ def usage():
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c s3://bucket/script\tAsk agent to fetch script from s3 and execute'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c [file://|s3://] -p arg1 arg2\tSend arguments to file:// or s3:// scripts'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -m \tGet a count on responding hosts'
-    print >>sys.stderr, '    ' + sys.argv[0] + ' -q <queue name> -c <command>\tOverwrite default SQS queue name'
+    print >>sys.stderr, '    ' + sys.argv[0] + ' -q <queue prefix> -c <command>\tOverwrite default_queue_name'
     print >>sys.stderr, '    ' + sys.argv[0] + ' -c <command> -t <seconds>\tOverwrite default timeout for agent to respond'
     sys.exit(1)
 
@@ -141,8 +141,8 @@ def main():
         elif o in ('-p', '--script-parameters'):
             if mode in ['script', 's3']:
                 script_param = a
-        elif o in ('-q', '--sqs-queue'):
-            CFG['aws']['write_queue'] = str(a)
+        elif o in ('-q', '--sqs-queue-prefix'):
+            CFG['aws']['default_queue_name'] = str(a)
         elif o in ('-m', '--monitor'):
             mode='count'
         elif o in ('-l', '--logfile'):
@@ -377,8 +377,9 @@ def run(mode, schedule, cmd, wf, wof, timeout, script_param):
         logging.error('Could not connect to SQS - check your authentication')
         sys.exit(1)
 
-    write_queue = conn.get_queue(CFG['aws']['write_queue'])
-    read_queue = conn.get_queue(CFG['aws']['read_queue'])
+    # Configure correct queue names
+    write_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['write_queue_suffix'])
+    read_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['read_queue_suffix'])
 
     if write_queue is None or read_queue is None:
         logging.error('Unable to get queue by name')
