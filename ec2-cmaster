@@ -243,7 +243,7 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
     responses = {}
 
     # Receive at least 1 message be fore continuing 
-    rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=2)
+    rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=1)
 
     # For each message we check for duplicate, and if it is a response to our org message
     for rmsg in rmsgs:
@@ -289,7 +289,7 @@ def delete_org_message (write_queue, msg_ids):
 def pull_org_msgs(write_queue, msg_ids):
 
     # Pick up written message and delete it
-    wmsgs = write_queue.get_messages(num_messages=10, visibility_timeout=2)
+    wmsgs = write_queue.get_messages(num_messages=10, visibility_timeout=1)
     
     for wmsg in wmsgs:
     
