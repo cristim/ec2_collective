@@ -33,8 +33,8 @@ from Queue import Empty
 
 try:
     pkg_resources.require("Boto>=1.9b")
-except pkg_resources.VersionConflict:
-    print 'Boto 1.9b or higher is required - exiting'
+except pkg_resources.VersionConflict, e:
+    sys.stderr.write('Boto 1.9b or higher is required - exiting\n')
     sys.exit(1)
 
 CFILE='/etc/ec2_collective/ec2-cagent.json'
@@ -53,18 +53,28 @@ def terminate_process(signum, frame):
 signal.signal(signal.SIGTERM, terminate_process)
 
 def usage():
-    print >>sys.stderr, '    Usage:'
-    print >>sys.stderr, '    ' + sys.argv[0] + '\n\n -f, --foreground\trun script in foreground\n -h, --help\tthis help\n -l, --logfile\tlogfile path ( /var/log/ec2_collective/ec2-cagent.log )\n -p, --pidfile\tpath to pidfile (/var/run/ec2-cagent.pid)'
+    sys.stderr.write('Usage:')
+    sys.stderr.write('\t' + sys.argv[0] + '\n\n -f, --foreground\trun script in foreground\n -h, --help\tthis help\n -l, --logfile\tlogfile path ( /var/log/ec2_collective/ec2-cagent.log )\n -p, --pidfile\tpath to pidfile (/var/run/ec2-cagent.pid)\n')
     sys.exit(1)
 
-def set_logging():
+def set_logging(logfile, foreground):
 
-    logformat = '%(asctime)s [%(levelname)s] %(message)s'
-    logging.basicConfig(level=logging.INFO, format=logformat)
+    log = logging.getLogger()
     logging.getLogger('boto').setLevel(logging.CRITICAL)
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    if foreground is True:
+        ch  = logging.StreamHandler(sys.stdout)
+        ch.setFormatter(fmt)
+        log.addHandler(ch)
+    else:
+        fh = logging.handlers.WatchedFileHandler(logfile)
+        fh.setFormatter(fmt)
+        log.addHandler(fh)
 
     if CFG['general']['log_level'] not in ['INFO', 'WARN', 'ERROR', 'DEBUG', 'CRITICAL' ]:
-        print >>sys.stderr, 'Log level: ' + CFG['general']['log_level'] + ' is invalid'
+        sys.stderr.write('Log level: ' + CFG['general']['log_level'] + ' is invalid\n')
+        sys.exit(1)
 
     if CFG['general']['log_level'] == 'INFO':
         logging.getLogger().setLevel(logging.INFO)
@@ -82,31 +92,24 @@ def acquire_lock(pidfile):
     try:
         f = open(pidfile, 'a')
     except IOError, err:
-        print 'Unable to open lockfile: ' + str(pidfile) + ' (' + str(err) + ')'
+        sys.stderr.write('Unable to open lockfile: ' + str(pidfile) + ' (' + str(err) + ')\n')
         sys.exit(1)
 
     try:
         fcntl.flock(f, fcntl.LOCK_EX|fcntl.LOCK_NB)
         return f
     except IOError, err:
-        print 'Unable to acquire lockfile: ' + str(pidfile) + ' (' + str(err) + ')'
+        sys.stderr.write('Unable to acquire lockfile: ' + str(pidfile) + ' (' + str(err) + ')\n')
         sys.exit(1)
 
-def initialize():
-
-    get_config()
-    set_logging()
-
-    foreground=False
-    logfile='/var/log/ec2_collective/ec2-cagent.log'
-    pidfile='/var/run/ec2-cagent.pid'
+def initialize(logfile='/var/log/ec2_collective/ec2-cagent.log', pidfile='/var/run/ec2-cagent.pid', foreground=False):
 
     try:
         opts, args = getopt.getopt(sys.argv[1:], 'hfl:p:', ['foreground', 'help', 'logfile', 'pidfile'])
 
     except getopt.GetoptError, err:
-        print >>sys.stderr, str(err) 
-        return 1
+        sys.stderr.write('Failed to parse arguments: (%s)\n' % (err))
+        sys.exit(1)
 
     for o, a in opts:
         if o in ('-h', '--help'):
@@ -118,7 +121,13 @@ def initialize():
         elif o in ('-p', '--pidfile'):
             pidfile=a
 
-    return (foreground, logfile, pidfile)
+    get_config()
+    set_logging(logfile,foreground)
+
+    stdoutlog = os.path.dirname(logfile) + '/ec2-cagent.stdout'
+    stderrlog = os.path.dirname(logfile) + '/ec2-cagent.stderr'
+
+    return (foreground, logfile, pidfile, stdoutlog, stderrlog)
 
 def get_yaml_facts (force_load=False):
     logging.debug('Looking for new facts')
@@ -189,18 +198,18 @@ def get_yaml_facts (force_load=False):
 
 def cli_mode (message):
 
-	try:
-           logging.debug ('Executing: ' + str(message['cmd']))
-           o = subprocess.Popen(message['cmd'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-           output = o.communicate()[0]
-           rc = o.poll()
+    try:
+        logging.debug ('Executing: ' + str(message['cmd']))
+        o = subprocess.Popen(message['cmd'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        output = o.communicate()[0]
+        rc = o.poll()
 
-        except OSError, e:
-            output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
-            rc = e.errno 
+    except OSError, e:
+        output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
+        rc = e.errno 
 
-        response={'mode': message['mode'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
-        return response
+    response={'mode': message['mode'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
+    return response
 
 def write_to_file (payload, identifier):
     script_file = '/tmp/' + 'ec2-cagent-' + identifier
@@ -406,20 +415,20 @@ def write_sqs_msg (response, sqs_write_queue):
 def get_config():
     # CFILE 
     if not os.path.exists(CFILE):
-        print >>sys.stderr, 'Config file ' + str(CFILE) + ' does not exist'
+        sys.stderr.write('Config file (%s) does not exist\n' % (CFILE) )
         sys.exit(1)
     
     try:
         f = open(CFILE, 'r')
     except IOError, e:
-        print >>sys.stderr, 'Failed to open config file ' + str(CFILE)
+        sys.stderr.write('Failed to open config file (%s)\n' % (CFILE) )
         sys.exit(1)
     
     try:
         global CFG
         CFG=json.load(f)
     except (TypeError, ValueError), e:
-        print >>sys.stderr, 'Error in configuration file ' + str(CFILE)
+        sys.stderr.write('Error in configuration file (%s)\n' % (CFILE) )
         sys.exit(1)
 
 def write_pidfile(pidfile):
@@ -742,8 +751,8 @@ def main ():
 
 if __name__ == "__main__":
 
-    (foreground, logfile, pidfile)=initialize()
-    lockfile=daemonize(foreground, pidfile,'/dev/null', logfile, logfile)
+    (foreground, logfile, pidfile, stdoutlog, stderrlog)=initialize()
+    lockfile=daemonize(foreground, pidfile,'/dev/null', stdoutlog, stderrlog)
     try:
         sys.exit(main())
     except (KeyboardInterrupt, SystemExit):

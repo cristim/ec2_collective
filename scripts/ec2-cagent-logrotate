@@ -5,7 +5,4 @@
 	notifempty
 	create 640 root admin
 	sharedscripts
-	postrotate
-		/etc/init.d/ec2-cagent restart > /dev/null
-	endscript
 }
