@@ -743,6 +743,7 @@ def main ():
 
         if not proc_receiver.is_alive():
            logging.error ('SQS receiver process just died - restarting')
+           get_yaml_facts(True)
            proc_receiver=fork_receive_sqs_msg(sqs_read_queue)
 
         if not proc_done_queue.is_alive():
