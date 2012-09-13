@@ -135,13 +135,13 @@ def get_yaml_facts (force_load=False):
     # Define dict for storage
     dataMap = {}
     load_files=False
+    valid_yaml_files = []
 
     yaml_files = CFG['general']['yaml_facts_path'].split(',')
     for yaml_file in yaml_files:
 
         if not os.path.exists(yaml_file):
             logging.error( yaml_file + ' file does not exist')
-            yaml_files.remove(yaml_file)
             continue
         else:
             try:
@@ -149,18 +149,19 @@ def get_yaml_facts (force_load=False):
                 filesize = os.stat(yaml_file).st_size
             except OSError, e:
                 logging.error('Could not stat ' + str(yaml_file) + ' ' + str(e))
-                yaml_files.remove(yaml_file)
                 continue
         if filesize == 0:
-            logging.warn('File ' + str(yaml_file) + 'is empty')
-            yaml_files.remove(yaml_file)
+            logging.warn('File ' + str(yaml_file) + ' is empty')
             continue
+
+	# If we get to here - the file looks good
+        valid_yaml_files.append(yaml_file)
 
         if fileage >= (time.time() - (CFG['general']['yaml_facts_refresh'] * 1.5 )):
             load_files=True
 
     if load_files is True or force_load is True:
-        for yaml_file in yaml_files:
+        for yaml_file in valid_yaml_files:
             logging.debug('Will try to reload facts')
     
             f = open(yaml_file, 'r')
@@ -498,8 +499,13 @@ def fact_lookup (wf, wof, yaml_facts ):
     # Return False if we have all the fact ( all facts must match )
     # Return True if we don't have the fact
 
+    # If yaml facts is true but we have no facts skip everything
+    if CFG['general']['yaml_facts'] == 'True' and yaml_facts is None:
+        logging.error('yaml_facts is True but there is none! - Agent will refuse to perform any command')
+        return True
+
     # If yaml facts is false we process all messages
-    if CFG['general']['yaml_facts'] == 'False' or yaml_facts is None:
+    if CFG['general']['yaml_facts'] == 'False':
         logging.debug('Match - no filter')
         return False
 
