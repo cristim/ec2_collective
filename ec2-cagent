@@ -676,8 +676,11 @@ def schedule_receive_sqs_msg(sqs_read_queue):
                 except Empty:
                     logging.debug('poll_control_queue queue is empty')
 
-            # Clear references to old messages ( keep messages of 5 minutes )
-            if ( READ_MSGS_LTS < (time.time() - 300 )):
+            # Clear references to old messages ( keep messages until we haven't done anything for 6 minutes ) 
+            # AWS SQS queues must have this setting
+            # Message Retention Period: 	5 minutes
+            # That will allow AWS to purge old messages a minute before we might pick it up again.
+            if ( READ_MSGS_LTS < (time.time() - 360 )):
                 READ_MSGS_LTS=time.time()
                 logging.debug('Emptying list of read messages')
                 READ_MSGS=[]
