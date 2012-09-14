@@ -16,6 +16,78 @@ import logging
 # CFG FILE
 CFILE='/etc/ec2_collective/ec2-cmaster.json'
 
+# Added from https://gist.github.com/758430
+class ColorizingStreamHandler(logging.StreamHandler):
+    # color names to indices
+    color_map = {
+        'black': 0,
+        'red': 1,
+        'green': 2,
+        'yellow': 3,
+        'blue': 4,
+        'magenta': 5,
+        'cyan': 6,
+        'white': 7,
+    }
+
+    #levels to (background, foreground, bold/intense)
+    level_map = {
+        logging.DEBUG: (None, 'blue', False),
+        logging.INFO: (None, 'green', False),
+        logging.WARNING: (None, 'yellow', False),
+        logging.ERROR: (None, 'red', False),
+        logging.CRITICAL: ('red', 'white', True),
+    }
+    csi = '\x1b['
+    reset = '\x1b[0m'
+
+    @property
+    def is_tty(self):
+        isatty = getattr(self.stream, 'isatty', None)
+        return isatty and isatty()
+
+    def emit(self, record):
+        try:
+            message = self.format(record)
+            stream = self.stream
+            if not self.is_tty:
+                stream.write(message)
+            else:
+                self.output_colorized(message)
+            stream.write(getattr(self, 'terminator', '\n'))
+            self.flush()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except:
+            self.handleError(record)
+
+    def output_colorized(self, message):
+        self.stream.write(message)
+
+    def colorize(self, message, record):
+        if record.levelno in self.level_map:
+            bg, fg, bold = self.level_map[record.levelno]
+            params = []
+            if bg in self.color_map:
+                params.append(str(self.color_map[bg] + 40))
+            if fg in self.color_map:
+                params.append(str(self.color_map[fg] + 30))
+            if bold:
+                params.append('1')
+            if params:
+                message = ''.join((self.csi, ';'.join(params),
+                                   'm', message, self.reset))
+        return message
+
+    def format(self, record):
+        message = logging.StreamHandler.format(self, record)
+        if self.is_tty:
+            # Don't colorize any traceback
+            parts = message.split('\n', 1)
+            parts[0] = self.colorize(parts[0], record)
+            message = '\n'.join(parts)
+        return message
+
 def get_config():
     if not os.path.exists(CFILE):
         print CFILE + ' file does not exist'
@@ -50,20 +122,19 @@ def set_logging(logfile=False):
 
         fh_fmt = logging.Formatter("%(asctime)s %(message)s")
         fh.setFormatter(fh_fmt)
-     
-    ch  = logging.StreamHandler(sys.stdout)
-    log.addHandler(ch)
 
     if CFG['general']['log_level'] == 'INFO':
-        logging.getLogger().setLevel(logging.INFO)
+        log.setLevel(logging.INFO)
     elif CFG['general']['log_level'] == 'WARN':
-        logging.getLogger().setLevel(logging.WARNING)
+        log.setLevel(logging.WARN)
     elif CFG['general']['log_level'] == 'ERROR':
-        logging.getLogger().setLevel(logging.ERROR)
+        log.setLevel(logging.ERROR)
     elif CFG['general']['log_level'] == 'DEBUG':
-        logging.getLogger().setLevel(logging.DEBUG)
+        log.setLevel(logging.DEBUG)
     elif CFG['general']['log_level'] == 'CRITICAL':
-        logging.getLogger().setLevel(logging.CRITICAL)
+        log.setLevel(logging.CRITICAL)
+
+    log.addHandler(ColorizingStreamHandler(sys.stdout))
 
 def usage():
     print >>sys.stderr, '    Usage:'
@@ -203,8 +274,11 @@ def mode_cmd_response (response):
         MASTER_EC = int(rc)
 
     response_str = '>>>>>> ' + hostname + ' exit code: ('+str(rc)+'):\n' +  str(output)
-
-    logging.info(response_str)
+ 
+    if int(rc) == 0: 
+        logging.info(response_str)
+    else:
+        logging.warn(response_str)
 
 def receive_responses (read_queue, org_ids, mode, timeout ):
 
@@ -390,17 +464,19 @@ def run(mode, schedule, cmd, wf, wof, timeout, script_param):
     org_ids.update (write_msg(write_queue, message))
     (pingresp, cmdresp) = receive_responses (read_queue, org_ids, mode, timeout)
 
-    # 15 second initial timeout  
-    if mode == 'count':
-	logging.info(str(len(pingresp)))
-
     # Delete original messags
     delete_org_message (write_queue, org_ids)
 
+    # monitoring mode - output count of ping replies and exit
+    if mode == 'count':
+        logging.info(str(len(pingresp)))
+        sys.exit(0)
+
+    # If we're in command mode we need to display hosts that did not respond
     if mode in ['cli', 'script', 's3'] and len(pingresp) > len(cmdresp):
         for hostname in pingresp:
             if hostname not in cmdresp:
-                logging.info('Timeout in response from: ' + hostname)
+                logging.warn('Timeout in response from: ' + hostname)
 
         # If some of the expected servers did not answer we exit 1
 	logging.debug('Setting master exit code to 1 because discovery and response count differ')
@@ -410,11 +486,13 @@ def run(mode, schedule, cmd, wf, wof, timeout, script_param):
 	logging.debug('Setting master exit code to 1 because of no responses' )
         MASTER_EC=1
 
-    if mode is not 'count':
-        logging.info('Got response from ' + str(len(cmdresp)) + ' out of ' + str(len(pingresp)) + ' (discovered)' + ' - exit code ('+str(MASTER_EC)+')')
-        sys.exit(MASTER_EC)
+    output_str='Got response from ' + str(len(cmdresp)) + ' out of ' + str(len(pingresp)) + ' (discovered)' + ' - exit code ('+str(MASTER_EC)+')'
+    if int(MASTER_EC) == 0:
+        logging.info(output_str)
     else:
-        sys.exit(MASTER_EC)
+        logging.warn(output_str)
+
+    sys.exit(MASTER_EC)
 
 if __name__ == "__main__":
     sys.exit(main())
