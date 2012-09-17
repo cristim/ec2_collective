@@ -499,20 +499,28 @@ def fact_lookup (wf, wof, yaml_facts ):
     # Return False if we have all the fact ( all facts must match )
     # Return True if we don't have the fact
 
-    # If yaml facts is true but we have no facts skip everything
-    if CFG['general']['yaml_facts'] == 'True' and yaml_facts is None:
-        logging.error('yaml_facts is True but there is none! - Agent will refuse to perform any command')
-        return True
+   # Execptions where we need to be careful
 
-    # If yaml facts is false we process all messages
+    # If yaml facts is false 
     if CFG['general']['yaml_facts'] == 'False':
-        logging.debug('Match - no filter')
-        return False
+        if wf is None and wof is None:
+            logging.debug('Process message - yaml_facts is False and message contains no facts')
+            return False
+        else:
+            logging.debug('Skip message - yaml_facts is False but message contains facts')
+            return True
 
-    # If nothing is set we process message
-    if wf is None and wof is None:
-        logging.debug('Match - no filter')
-        return False
+    # If yaml facts is true 
+    if CFG['general']['yaml_facts'] == 'True': 
+        # but we have no facts skip everything
+        if yaml_facts is None:
+            logging.error('Skip message - yaml_facts is True but there are no facts available!')
+            return True
+
+        # If nothing is set we process message
+        if wf is None and wof is None:
+            logging.error('Process message - yaml_facts is True but message contains no facts')
+            return False
 
     # If wof is in facts we return True ( skip message )
     if wof is not None:
@@ -522,16 +530,16 @@ def fact_lookup (wf, wof, yaml_facts ):
                 f = f.split('=')
     
                 if (f[0] in yaml_facts) and (yaml_facts[f[0]] == f[1]):
-                    logging.debug('Match - wof match')
+                    logging.debug('Skip message - wof matched')
                     return True
             else:
                 if f in yaml_facts:
-                    logging.debug('Match - wof match')
+                    logging.debug('Skip message - wof matched')
     		    return True
 
     # Without is set but we did not find it, if wf is not set we return False ( process message )
     if wf is None:
-        logging.debug('Match - no wof match')
+        logging.debug('Process message - no wof match and no wf')
         return False
 
     # If all wf is in facts we return False ( process message )
@@ -549,11 +557,11 @@ def fact_lookup (wf, wof, yaml_facts ):
 
     if no_match == 0 :
         # All facts was found ( process message )
-        logging.debug('Match - wf filter')
+        logging.debug('Process message - wf matched')
         return False
     else:
         # Facts set was not found - return True ( skip message )
-        logging.debug('No match - wf filter')
+        logging.debug('Skip message - no wf match')
         return True
 
 def fork_worker():
