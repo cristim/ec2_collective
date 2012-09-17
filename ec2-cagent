@@ -502,7 +502,7 @@ def fact_lookup (wf, wof, yaml_facts ):
    # Execptions where we need to be careful
 
     # If yaml facts is false 
-    if CFG['general']['yaml_facts'] == 'False':
+    if CFG['general']['yaml_facts'] == False:
         if wf is None and wof is None:
             logging.debug('Process message - yaml_facts is False and message contains no facts')
             return False
@@ -511,7 +511,7 @@ def fact_lookup (wf, wof, yaml_facts ):
             return True
 
     # If yaml facts is true 
-    if CFG['general']['yaml_facts'] == 'True': 
+    if CFG['general']['yaml_facts'] == True: 
         # but we have no facts skip everything
         if yaml_facts is None:
             logging.error('Skip message - yaml_facts is True but there are no facts available!')
@@ -729,7 +729,7 @@ def main ():
 
 
     # Lets get those facsts ( it's a string not a boolean )
-    if CFG['general']['yaml_facts'] == 'True':
+    if CFG['general']['yaml_facts'] == True:
         get_yaml_facts(True)
 
         # Schedule a refresh
@@ -753,7 +753,7 @@ def main ():
         running_children = len(active_children())
         logging.debug(str(running_children) + ' active children')
 
-        if CFG['general']['yaml_facts'] == 'True' and not t_yaml_facts.is_alive():
+        if CFG['general']['yaml_facts'] == True and not t_yaml_facts.is_alive():
             t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, ())
             t_yaml_facts.daemon=True
             t_yaml_facts.start()
