@@ -160,7 +160,6 @@ def main():
 
     # Defaults
     mode='ping'
-    schedule=time.time()
     cmd=None
     wf=None
     wof=None
@@ -170,7 +169,7 @@ def main():
     logfile=False
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'hs:c:w:n:t:p:q:ml:', ['help', 'schedule=', 'command=', 'wf=', 'wc=', 'wof=', 'timeout=', 'script-parameters=', 'sqs-queue=', 'monitor', 'logfile='])
+        opts, args = getopt.getopt(sys.argv[1:], 'hc:w:n:t:p:q:ml:', ['help', 'command=', 'wf=', 'wc=', 'wof=', 'timeout=', 'script-parameters=', 'sqs-queue=', 'monitor', 'logfile='])
     except getopt.GetoptError, err:
         print >>sys.stderr, str(err) 
         return 1
@@ -178,10 +177,6 @@ def main():
     for o, a in opts:
         if o in ('-h', '--help'):
             usage()
-        elif o in ('-s', '--schedule'):
-            if a != 'now':
-                # We use the following ts MMDDHHMM
-                schedule=a
         elif o in ('-c', '--command'):
             cmd = a
             if 'file://' in cmd:
@@ -229,7 +224,7 @@ def main():
 
     set_logging(logfile)
 
-    run (mode, schedule, cmd, wf, wof, timeout, script_param)
+    run (mode, cmd, wf, wof, timeout, script_param)
 
 # Signal handler
 def master_timeout(signum, frame):
@@ -431,7 +426,7 @@ def inhale_script (script_file):
 
     return f.read()
 
-def run(mode, schedule, cmd, wf, wof, timeout, script_param):
+def run(mode, cmd, wf, wof, timeout, script_param):
     global MASTER_EC
 
     payload = None
@@ -460,7 +455,8 @@ def run(mode, schedule, cmd, wf, wof, timeout, script_param):
         sys.exit(1)
 
     # Construct message, send and receive
-    message={'mode':mode,'schedule':schedule, 'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
+    message={'mode':mode,'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
+    logging.debug('Message is ' + str(message))
     org_ids.update (write_msg(write_queue, message))
     (pingresp, cmdresp) = receive_responses (read_queue, org_ids, mode, timeout)
 

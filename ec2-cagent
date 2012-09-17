@@ -42,7 +42,6 @@ CFILE='/etc/ec2_collective/ec2-cagent.json'
 # Create queues
 task_queue = Queue()
 done_queue = Queue()
-scheduled_queue = Queue()
 yaml_queue = Queue()
 poll_control_queue = Queue()
 
@@ -331,14 +330,8 @@ def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
 
         logging.debug('New valid SQS message received')
 
-        if int(message['schedule']) > time.time() and message['mode'] not in [ 'ping', 'count' ]:
-            logging.debug('Putting SQS message on scheduled queue and task queue')
-            scheduled_queue.put(message)
-            message['is_scheduled']=True
-            task_queue.put(message)
-        else:
-            logging.debug('Putting SQS message on task queue')
-            task_queue.put(message)
+        logging.debug('Putting SQS message on task queue')
+        task_queue.put(message)
 
         poll_control_queue.put(CFG['general']['sqs_att_poll_interval'])
 
@@ -358,12 +351,7 @@ def process_msg ( message ):
         response={'mode': 'ping', 'output': ts, 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname(), 'discovery':1};
         done_queue.put(response)
 
-    # If this is a scheduled task
-    if 'is_scheduled' in message and message['is_scheduled'] is True:
-        logging.info('Responding to scheduled task')
-        response={'mode': mode, 'output': 'Task scheduled...', 'rc': '0', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
-        return response
-    elif mode == 'cli':
+    if mode == 'cli':
         logging.info("Performing command execution")
         response = cli_mode(message)
     elif mode in [ 'script', 's3' ]:
@@ -571,22 +559,6 @@ def fork_worker():
     P.start()
     logging.debug('Forking worker with pid ' + str(P.pid))
 
-def check_scheduled_queue():
-    logging.debug('Checking scheduled queue')
-
-    if scheduled_queue.qsize() > 0:
-        try:
-            message = scheduled_queue.get(False)
-            # Remove scheduled flag
-            message['is_scheduled']=False
-            when=(int(message['schedule']) - time.time())
-            logging.debug('Scheduling execution of task')
-            t = Timer(when, process_msg, (message,))
-            t.daemon=True
-            t.start()
-        except Empty:
-            logging.debug('scheduled_queue is empty')
-
 def check_task_queue():
     logging.debug('Checking task queue')
     if task_queue.qsize() > 0:
@@ -746,7 +718,6 @@ def main ():
 
     while ( True ):
         main_task_sched.enter(0.1, 1, check_task_queue, ())
-        main_task_sched.enter(0.1, 2, check_scheduled_queue, ( ))
         main_task_sched.run()
 
         # Calling active_children will also make sure that we clean up old hanging children
