@@ -519,7 +519,7 @@ def fact_lookup (wf, wof, yaml_facts ):
 
         # If nothing is set we process message
         if wf is None and wof is None:
-            logging.error('Process message - yaml_facts is True but message contains no facts')
+            logging.debug('Process message - yaml_facts is True but message contains no facts')
             return False
 
     # If wof is in facts we return True ( skip message )
