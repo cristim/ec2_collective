@@ -288,7 +288,7 @@ def receive_facts (facts_queue):
             logging.debug('Got agent ' + str(len(agent_facts)) + ' facts')
             agent_facts_resp.update(agent_facts)
 
-        if ((int(time.time()) - start_time) >= timeout):
+        if ((time.time() - start_time) >= timeout):
             logging.debug('facts timeout reached ' + str(timeout) )
             break
 
@@ -297,6 +297,8 @@ def receive_facts (facts_queue):
     return agent_facts_resp
 
 def pull_agent_facts (facts_queue, old_msgs ):
+
+    logging.debug('Pulling agent facts')
 
     response = None
     responses = {}
