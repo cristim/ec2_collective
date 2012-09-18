@@ -12,6 +12,11 @@ import os
 import random
 import string
 import logging
+from multiprocessing import Process, Queue, active_children
+from Queue import Empty
+
+# Create queues
+facts_pqueue = Queue()
 
 # CFG FILE
 CFILE='/etc/ec2_collective/ec2-cmaster.json'
@@ -202,7 +207,7 @@ def main():
                 timeout = int(a)
                 timeout_set = True
             except:
-                print 'Timeout value is not an integer'
+                print >>sys.stderr, 'Timeout value is not an integer'
                 sys.exit(1)
         elif o in ('-p', '--script-parameters'):
             if mode in ['script', 's3']:
@@ -219,7 +224,7 @@ def main():
         usage()
 
     if mode not in ['ping', 'count', 'cli', 'script', 's3' ]:
-        print 'Uknown mode: ' + str(a)
+        print >>sys.stderr, 'Uknown mode: ' + str(a)
         usage()
 
     set_logging(logfile)
@@ -275,13 +280,27 @@ def mode_cmd_response (response):
     else:
         logging.warn(response_str)
 
-def receive_facts (facts_queue):
+def receive_facts ():
+
+    start_time=int(time.time())
+
+    # Connect with key, secret and region
+    try:
+        conn = connect_to_region(CFG['aws']['region'])
+    except:
+        logging.error('Could not connect to SQS - check your authentication')
+        sys.exit(1)
+
+    facts_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['facts_queue_suffix'])
+
+    if facts_queue is None:
+        logging.error('Unable to get queue by name')
+        sys.exit(1)
 
     old_msgs = {}
     agent_facts_resp={}
 
-    timeout=1
-    start_time=int(time.time())
+    timeout=( CFG['general']['ping_timeout'] - 1 )
     while ( True ):
         agent_facts, old_msgs = pull_agent_facts (facts_queue, old_msgs)
         if len(agent_facts) > 0:
@@ -294,7 +313,9 @@ def receive_facts (facts_queue):
 
     logging.debug('agent_facts_resp count ' + str(len(agent_facts_resp)))
 
-    return agent_facts_resp
+    facts_pqueue.put(agent_facts_resp)
+
+    sys.exit(0)
 
 def pull_agent_facts (facts_queue, old_msgs ):
 
@@ -332,7 +353,8 @@ def pull_agent_facts (facts_queue, old_msgs ):
     # Retrun all responses
     return (responses, old_msgs)
 
-def receive_responses (read_queue, org_ids, mode, timeout, agents_to_expect ):
+def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
+
 
     ptimeout=CFG['general']['ping_timeout']
     total_responses = {}
@@ -340,9 +362,19 @@ def receive_responses (read_queue, org_ids, mode, timeout, agents_to_expect ):
     agent_msgs = {}
     pingresp=[]
     cmdresp=[]
+    agents_to_expect=0
 
     start_time=int(time.time())
     while ( True ):
+
+        # Check the queue
+        try:
+            agent_facts_resp = facts_pqueue.get(False)
+            logging.debug('facts read from facts_pqueue')
+            agents_to_expect = count_agents(agent_facts_resp, wf, wof)
+        except Empty:
+            logging.debug('facts_pqueue is empty')
+
         responses, old_msgs = pull_msgs (read_queue, org_ids, old_msgs)
         if len(responses) > 0:
             (pingresp, cmdresp) = response_disect(responses, mode, pingresp, cmdresp )
@@ -575,7 +607,13 @@ def run(mode, cmd, wf, wof, timeout, script_param):
     responses={}
     ping_responses={}
     org_ids={}
-    agents_to_expect=0
+
+    # Fork worker for handling facts queue
+    if CFG['general']['use_facts_queue'] == True:
+        P = Process(target=receive_facts, args=())
+        P.daemon=True
+        P.start()
+        logging.debug('Forking facts receiver with pid ' + str(P.pid))
 
     # Connect with key, secret and region
     try:
@@ -587,25 +625,16 @@ def run(mode, cmd, wf, wof, timeout, script_param):
     # Configure correct queue names
     write_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['write_queue_suffix'])
     read_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['read_queue_suffix'])
-    facts_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['facts_queue_suffix'])
 
     if write_queue is None or read_queue is None:
         logging.error('Unable to get queue by name')
         sys.exit(1)
 
-    if CFG['general']['use_facts_queue'] == True:
-        if facts_queue is None:
-            logging.error('Unable to get queue by name')
-            sys.exit(1)
-        else:
-            agent_facts_resp = receive_facts(facts_queue)
-            agents_to_expect = count_agents(agent_facts_resp, wf, wof)
-
     # Construct message, send and receive
     message={'mode':mode,'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
     logging.debug('Message is ' + str(message))
     org_ids.update (write_msg(write_queue, message))
-    (pingresp, cmdresp) = receive_responses (read_queue, org_ids, mode, timeout, agents_to_expect)
+    (pingresp, cmdresp) = receive_responses (read_queue, org_ids, mode, timeout, wf, wof )
 
     # Delete original messags
     delete_org_message (write_queue, org_ids)
