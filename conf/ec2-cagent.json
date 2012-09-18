@@ -7,11 +7,13 @@
         "sqs_att_poll_period": 10,
         "yaml_facts": true,
         "yaml_facts_path": "/mnt/facts/facts.yaml,/var/lib/puppet/state/classes.txt",
-        "yaml_facts_refresh": 5
+        "yaml_facts_refresh": 5,
+        "use_facts_queue": false 
     },
     "aws": {
         "region": "eu-west-1",
         "sqs_read_queue": "testing_master",
-        "sqs_write_queue": "testing_agent"
+        "sqs_write_queue": "testing_agent",
+        "sqs_facts_queue": "testing_facts"
     }
 }
