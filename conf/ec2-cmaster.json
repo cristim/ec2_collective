@@ -3,12 +3,14 @@
         "log_level": "INFO",
         "cmd_timeout": 10,
         "ping_timeout": 5,
-        "clean_timeout": 15
+        "clean_timeout": 15,
+        "use_facts_queue": false
     },
     "aws": {
         "region": "eu-west-1",
         "default_queue_name": "testing",
         "write_queue_suffix": "_ec2_cmaster",
-        "read_queue_suffix": "_ec2_cagent"
+        "read_queue_suffix": "_ec2_cagent",
+        "facts_queue_suffix": "_ec2_cfacts"
     }
 }

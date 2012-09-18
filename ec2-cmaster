@@ -275,13 +275,64 @@ def mode_cmd_response (response):
     else:
         logging.warn(response_str)
 
-def receive_responses (read_queue, org_ids, mode, timeout ):
+def receive_facts (facts_queue):
 
-    if mode in [ 'ping','count' ]:
-        timeout=CFG['general']['ping_timeout']
+    old_msgs = {}
+    agent_facts_resp={}
+
+    timeout=1
+    start_time=int(time.time())
+    while ( True ):
+        agent_facts, old_msgs = pull_agent_facts (facts_queue, old_msgs)
+        if len(agent_facts) > 0:
+            logging.debug('Got agent ' + str(len(agent_facts)) + ' facts')
+            agent_facts_resp.update(agent_facts)
+
+        if ((int(time.time()) - start_time) >= timeout):
+            logging.debug('facts timeout reached ' + str(timeout) )
+            break
+
+    logging.debug('agent_facts_resp count ' + str(len(agent_facts_resp)))
+
+    return agent_facts_resp
+
+def pull_agent_facts (facts_queue, old_msgs ):
+
+    response = None
+    responses = {}
+
+    # Receive at least 1 message be fore continuing 
+    rmsgs = facts_queue.get_messages(num_messages=10, visibility_timeout=0)
+
+    # For each message we check for duplicate, and if it is a response to our org message
+    for rmsg in rmsgs:
+
+        # PUT FIRST Avoid duplicates 
+        if rmsg.id in old_msgs:
+            continue
+        else:
+            old_msgs[rmsg.id] = rmsg.id
+
+        response=json.loads(rmsg.get_body())
+        ec2_cagent_hostname = str(response['ec2_cagent_hostname'])
+
+        # If it is from an agent we already handled
+        if ec2_cagent_hostname in old_msgs:
+            continue
+        else:
+            old_msgs[ec2_cagent_hostname] = ec2_cagent_hostname
+
+        responses[ec2_cagent_hostname] = response
+
+        logging.debug(response)
+
+    logging.debug('Returning: ' + str(len(responses)) + ' responses')
+    # Retrun all responses
+    return (responses, old_msgs)
+
+def receive_responses (read_queue, org_ids, mode, timeout, agents_to_expect ):
 
     ptimeout=CFG['general']['ping_timeout']
-
     total_responses = {}
     old_msgs = {}
     agent_msgs = {}
@@ -294,13 +345,26 @@ def receive_responses (read_queue, org_ids, mode, timeout ):
         if len(responses) > 0:
             (pingresp, cmdresp) = response_disect(responses, mode, pingresp, cmdresp )
 
-        if (int(time.time()) - start_time) >= ptimeout and len(pingresp) == len(cmdresp):
-            logging.debug('Ping timeout reached (' + str(ptimeout) + ') and got response from all')
-            break
+        # Add the command timeout if we're in that mode
+        if mode in [ 'ping','count' ]:
+            if (int(time.time()) - start_time) >= ptimeout:
+                logging.debug('Ping timeout reached (' + str(ptimeout) + ')')
+                break
+        else:
+            if ((int(time.time()) - start_time) >= timeout):
+                logging.debug('cmd timeout reached ' + str(timeout) )
+                break
 
-        if ((int(time.time()) - start_time) >= timeout):
-            logging.debug('cmd timeout reached ' + str(timeout) )
-            break
+            # Discover with ping or agents_to_expect 
+            if agents_to_expect == 0:
+                if (int(time.time()) - start_time) >= ptimeout and len(cmdresp) >= len(pingresp):
+                    logging.debug('Ping timeout reached (' + str(ptimeout) + ') and got response from all')
+                    break
+            else:
+                # We can add another level of reliability
+                if (int(time.time()) - start_time) >= ptimeout and len(pingresp) >= agents_to_expect and len(cmdresp) >= len(pingresp):
+                    logging.debug('Ping timeout, expected agents and responses are greater or equal - stopped waiting')
+                    break
 
     logging.debug('pingresp, cmdresp: ' + str(len(pingresp)) + ', ' + str(len(cmdresp)))
 
@@ -373,6 +437,77 @@ def pull_org_msgs(write_queue, msg_ids):
 
     return msg_ids
 
+def fact_lookup (wf, wof, yaml_facts ):
+    # Same engine from agent
+
+    # True - Skip
+    # False - Process
+
+    # WOF
+    # Return True if we have the fact ( just on should skip message )
+    # Return False if we don't have the fact
+
+    # WF
+    # Return False if we have all the fact ( all facts must match )
+    # Return True if we don't have the fact
+
+    # If nothing is set we process message
+    if wf is None and wof is None:
+        logging.debug('Agent match - message contains no facts')
+        return False
+
+    # If wof is in facts we return True ( skip message )
+    if wof is not None:
+        wof = wof.split(',')
+        for f in wof:
+            if '=' in f:
+                f = f.split('=')
+    
+                if (f[0] in yaml_facts) and (yaml_facts[f[0]] == f[1]):
+                    logging.debug('Agent skip - wof matched')
+                    return True
+            else:
+                if f in yaml_facts:
+                    logging.debug('Agent skip - wof matched')
+    		    return True
+
+    # Without is set but we did not find it, if wf is not set we return False ( process message )
+    if wf is None:
+        logging.debug('Agent match - no wof match and no wf')
+        return False
+
+    # If all wf is in facts we return False ( process message )
+    no_match=0
+    wf = wf.split(',')
+    for f in wf:
+        if '=' in f:
+            f = f.split('=')
+   
+            if (f[0] not in yaml_facts) or (yaml_facts[f[0]] != f[1]):
+                no_match += 1
+        else:
+            if f not in yaml_facts:
+                no_match += 1
+
+    if no_match == 0 :
+        # All facts was found ( process message )
+        logging.debug('Agent match - wf matched')
+        return False
+    else:
+        # Facts set was not found - return True ( skip message )
+        logging.debug('Agent skip - no wf match')
+        return True
+
+def count_agents (agent_facts_resp, wf, wof):
+    count=0
+    for agent in agent_facts_resp:
+        if fact_lookup (wf, wof, agent_facts_resp[agent]) == False:
+            count += 1
+
+    logging.debug(str(count) + ' agent matched')
+
+    return count
+
 def id_generator(size=10, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for x in range(size))
 
@@ -438,6 +573,7 @@ def run(mode, cmd, wf, wof, timeout, script_param):
     responses={}
     ping_responses={}
     org_ids={}
+    agents_to_expect=0
 
     # Connect with key, secret and region
     try:
@@ -449,16 +585,25 @@ def run(mode, cmd, wf, wof, timeout, script_param):
     # Configure correct queue names
     write_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['write_queue_suffix'])
     read_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['read_queue_suffix'])
+    facts_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['facts_queue_suffix'])
 
     if write_queue is None or read_queue is None:
         logging.error('Unable to get queue by name')
         sys.exit(1)
 
+    if CFG['general']['use_facts_queue'] == True:
+        if facts_queue is None:
+            logging.error('Unable to get queue by name')
+            sys.exit(1)
+        else:
+            agent_facts_resp = receive_facts(facts_queue)
+            agents_to_expect = count_agents(agent_facts_resp, wf, wof)
+
     # Construct message, send and receive
     message={'mode':mode,'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
     logging.debug('Message is ' + str(message))
     org_ids.update (write_msg(write_queue, message))
-    (pingresp, cmdresp) = receive_responses (read_queue, org_ids, mode, timeout)
+    (pingresp, cmdresp) = receive_responses (read_queue, org_ids, mode, timeout, agents_to_expect)
 
     # Delete original messags
     delete_org_message (write_queue, org_ids)
