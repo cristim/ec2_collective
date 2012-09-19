@@ -349,11 +349,9 @@ def pull_agent_facts (facts_queue, old_msgs ):
 
 def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
 
-
     ptimeout=CFG['general']['ping_timeout']
     total_responses = {}
     old_msgs = {}
-    agent_msgs = {}
     pingresp=[]
     cmdresp=[]
     agents_to_expect=0
@@ -373,25 +371,33 @@ def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
         if len(responses) > 0:
             (pingresp, cmdresp) = response_disect(responses, mode, pingresp, cmdresp )
 
-        # Add the command timeout if we're in that mode
-        if mode in [ 'ping','count' ]:
-            if (int(time.time()) - start_time) >= ptimeout:
-                logging.debug('Ping timeout reached (' + str(ptimeout) + ')')
-                break
-        else:
-            if ((int(time.time()) - start_time) >= timeout):
-                logging.debug('cmd timeout reached ' + str(timeout) )
-                break
+        # Add the command timeout to break if we never get a ping answer or cmd answer
+        if ((int(time.time()) - start_time) >= timeout):
+            logging.warn('cmd_timeout timeout reached ' + str(timeout) )
+	    logging.debug('Setting master exit code to 1 because of cmd timeout' )
+            global MASTER_EC
+            MASTER_EC=1
+            break
 
-            # Discover with ping or agents_to_expect 
-            if agents_to_expect == 0:
+        # Discover with ping or agents_to_expect 
+        if agents_to_expect == 0:
+            if mode in [ 'ping','count' ]:
+                if (int(time.time()) - start_time) >= ptimeout:
+                    logging.debug('Ping timeout reached (' + str(ptimeout) + ')')
+                    break
+            else:
                 if (int(time.time()) - start_time) >= ptimeout and len(cmdresp) >= len(pingresp):
                     logging.debug('Ping timeout reached (' + str(ptimeout) + ') and got response from all')
                     break
+        else:
+            # We can add another level of reliability
+            if mode in [ 'ping','count' ]:
+                if (int(time.time()) - start_time) >= ptimeout and len(pingresp) >= agents_to_expect:
+                    logging.debug('Ping timeout reached (' + str(ptimeout) + ') and expected agents replied')
+                    break
             else:
-                # We can add another level of reliability
                 if (int(time.time()) - start_time) >= ptimeout and len(pingresp) >= agents_to_expect and len(cmdresp) >= len(pingresp):
-                    logging.debug('Ping timeout, expected agents and responses are greater or equal - stopped waiting')
+                    logging.debug('Ping timeout reached (' + str(ptimeout) + ') and got response from all expected agents')
                     break
 
     logging.debug('pingresp, cmdresp: ' + str(len(pingresp)) + ', ' + str(len(cmdresp)))
