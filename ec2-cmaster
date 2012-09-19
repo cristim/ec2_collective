@@ -288,7 +288,7 @@ def receive_facts ():
     facts_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['facts_queue_suffix'])
 
     if facts_queue is None:
-        logging.error('Unable to get queue by name')
+        logging.error('Unable to get ' + str(CFG['aws']['default_queue_name']) + str(CFG['aws']['facts_queue_suffix']) + ' queue by name')
         sys.exit(1)
 
     old_msgs = {}
