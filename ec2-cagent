@@ -128,14 +128,22 @@ def initialize(logfile='/var/log/ec2_collective/ec2-cagent.log', pidfile='/var/r
 
     return (foreground, logfile, pidfile, stdoutlog, stderrlog)
 
-def write_yaml_to_queue ( message, sqs_facts_queue ):
+def write_yaml_to_queue ( message ):
+    conn = establish_sqs_conn()
+    sqs_facts_queue = conn.get_queue(CFG['aws']['sqs_facts_queue'])
+
+    if sqs_facts_queue is None:
+        logging.error('Unable to get ' + str(CFG['aws']['sqs_facts_queue']) + ' queue by name')
+        logging.debug('Failed to write facts to sqs facts queue')
+        return False
+
     # Make sure the facts message contains a hostname
     message.update({ 'ec2_cagent_hostname' : gethostname() })
 
     logging.debug('Writing facts to sqs facts queue')
     write_sqs_msg (message, sqs_facts_queue)
 
-def get_yaml_facts (sqs_facts_queue=None):
+def get_yaml_facts ():
     logging.debug('Loading facts')
  
     # Define dict for storage
@@ -178,8 +186,10 @@ def get_yaml_facts (sqs_facts_queue=None):
         logging.info('Facts loaded from file(s)')
         logging.debug(dataMap)
         yaml_queue.put(dataMap)
-        if sqs_facts_queue is not None:
-            write_yaml_to_queue(dataMap, sqs_facts_queue)
+
+        if CFG['general']['use_facts_queue'] == True:
+            write_yaml_to_queue(dataMap)
+
         return True
     else:
         logging.debug('Facts are empty')
@@ -569,7 +579,16 @@ def check_done_queue(sqs_write_queue):
         except Empty:
             logging.debug('Done queue is empty')
 
-def schedule_check_done_queue(sqs_write_queue):
+def schedule_check_done_queue():
+
+    conn = establish_sqs_conn()
+    sqs_write_queue = conn.get_queue(CFG['aws']['sqs_write_queue'])
+
+    # Can we communicate with SQS ?
+    if sqs_write_queue is None:
+        logging.error('Unable to get ' + CFG['aws']['sqs_write_queue'] + ' queue by name')
+        sys.exit(1)
+
     s = sched.scheduler(time.time, time.sleep)
 
     try:
@@ -581,9 +600,9 @@ def schedule_check_done_queue(sqs_write_queue):
         logging.info('Done queue checker process exiting...')
         sys.exit(0)
 
-def fork_check_done_queue(sqs_write_queue):
+def fork_check_done_queue():
     # process control
-    P = Process(target=schedule_check_done_queue, args=(sqs_write_queue,))
+    P = Process(target=schedule_check_done_queue, args=())
     P.daemon=True
     P.start()
     logging.debug('Forking worker to handle done queue with pid ' + str(P.pid))
@@ -597,7 +616,14 @@ def fork_check_done_queue(sqs_write_queue):
 def sqs_poll_slow_down():
     poll_control_queue.put(CFG['general']['sqs_poll_interval'])
 
-def schedule_receive_sqs_msg(sqs_read_queue):
+def schedule_receive_sqs_msg():
+
+    # Make connectoin for this child
+    conn = establish_sqs_conn()
+    sqs_read_queue = conn.get_queue(CFG['aws']['sqs_read_queue'])
+    if sqs_read_queue is None:
+        logging.error('Unable to get ' + str(CFG['aws']['sqs_read_queue']) + ' queue by name')
+        sys.exit(1)
 
     s = sched.scheduler(time.time, time.sleep)
     t = []
@@ -658,9 +684,9 @@ def schedule_receive_sqs_msg(sqs_read_queue):
         logging.info('Receive sqs messages process exiting...')
         sys.exit(0)
 
-def fork_receive_sqs_msg(sqs_read_queue):
+def fork_receive_sqs_msg():
     # process control
-    P = Process(target=schedule_receive_sqs_msg, args=(sqs_read_queue,))
+    P = Process(target=schedule_receive_sqs_msg, args=())
     P.daemon=True
     P.start()
     logging.debug('Forking worker to handle sqs queue with pid ' + str(P.pid))
@@ -671,7 +697,7 @@ def fork_receive_sqs_msg(sqs_read_queue):
 
     return P
 
-def main ():
+def establish_sqs_conn ():
 
     # Connect with key, secret and region
     try:
@@ -680,29 +706,16 @@ def main ():
         logging.error('Could not connect to SQS - check your authentication')
         sys.exit(1)
 
-    sqs_read_queue = conn.get_queue(CFG['aws']['sqs_read_queue'])
-    sqs_write_queue = conn.get_queue(CFG['aws']['sqs_write_queue'])
+    return conn
 
-    # Can we communicate with SQS ?
-    if sqs_read_queue is None or sqs_write_queue is None:
-        logging.error('Unable to get queue by name')
-        sys.exit(1)
-
-    # Make sure we update the facts queue
-    if CFG['general']['use_facts_queue'] == True:
-        sqs_facts_queue = conn.get_queue(CFG['aws']['sqs_facts_queue'])
-        if sqs_facts_queue is None:
-            logging.error('Unable to get queue by name')
-            sys.exit(1)
-    else:
-        sqs_facts_queue = None
+def main ():
 
     # Lets get those facsts ( it's a string not a boolean )
     if CFG['general']['yaml_facts'] == True:
-        get_yaml_facts(sqs_facts_queue,)
+        get_yaml_facts()
 
         # Schedule a refresh
-        t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, (sqs_facts_queue,))
+        t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, ())
         t_yaml_facts.daemon=True
         t_yaml_facts.start()
 
@@ -710,8 +723,8 @@ def main ():
     main_task_sched = sched.scheduler(time.time, time.sleep)
 
     # fork processes for sqs queue check and done queue checking
-    proc_receiver=fork_receive_sqs_msg(sqs_read_queue)
-    proc_done_queue=fork_check_done_queue(sqs_write_queue)
+    proc_receiver=fork_receive_sqs_msg()
+    proc_done_queue=fork_check_done_queue()
 
     while ( True ):
         main_task_sched.enter(0.1, 1, check_task_queue, ())
@@ -722,18 +735,18 @@ def main ():
         logging.debug(str(running_children) + ' active children')
 
         if CFG['general']['yaml_facts'] == True and not t_yaml_facts.is_alive():
-            t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, (sqs_facts_queue,))
+            t_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts, ())
             t_yaml_facts.daemon=True
             t_yaml_facts.start()
 
         if not proc_receiver.is_alive():
            logging.error ('SQS receiver process just died - restarting')
-           get_yaml_facts(sqs_facts_queue,)
-           proc_receiver=fork_receive_sqs_msg(sqs_read_queue)
+           get_yaml_facts()
+           proc_receiver=fork_receive_sqs_msg()
 
         if not proc_done_queue.is_alive():
            logging.error ('Done queue checker process just died - restarting')
-           proc_done_queue=fork_check_done_queue(sqs_write_queue)
+           proc_done_queue=fork_check_done_queue()
 
 if __name__ == "__main__":
 
