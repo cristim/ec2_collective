@@ -284,13 +284,7 @@ def receive_facts ():
 
     start_time=int(time.time())
 
-    # Connect with key, secret and region
-    try:
-        conn = connect_to_region(CFG['aws']['region'])
-    except:
-        logging.error('Could not connect to SQS - check your authentication')
-        sys.exit(1)
-
+    conn = establish_sqs_conn()
     facts_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['facts_queue_suffix'])
 
     if facts_queue is None:
@@ -595,6 +589,17 @@ def inhale_script (script_file):
 
     return f.read()
 
+def establish_sqs_conn ():
+
+    # Connect with key, secret and region
+    try:
+        conn = connect_to_region(CFG['aws']['region'])
+    except:
+        logging.error('Could not connect to SQS - check your authentication')
+        sys.exit(1)
+
+    return conn
+
 def run(mode, cmd, wf, wof, timeout, script_param):
     global MASTER_EC
 
@@ -615,12 +620,7 @@ def run(mode, cmd, wf, wof, timeout, script_param):
         P.start()
         logging.debug('Forking facts receiver with pid ' + str(P.pid))
 
-    # Connect with key, secret and region
-    try:
-        conn = connect_to_region(CFG['aws']['region'])
-    except:
-        logging.error('Could not connect to SQS - check your authentication')
-        sys.exit(1)
+    conn = establish_sqs_conn()
 
     # Configure correct queue names
     write_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['write_queue_suffix'])
