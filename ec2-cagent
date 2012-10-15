@@ -51,6 +51,14 @@ def terminate_process(signum, frame):
 
 signal.signal(signal.SIGTERM, terminate_process)
 
+# Signal handler
+def master_timeout(signum, frame):
+    logging.error('Timeout reached - exiting')
+    sys.exit(1)
+
+# When timeout happens master_timeout definition executes raising an exception
+signal.signal(signal.SIGALRM, master_timeout)
+
 def usage():
     sys.stderr.write('Usage:')
     sys.stderr.write('\t' + sys.argv[0] + '\n\n -f, --foreground\trun script in foreground\n -h, --help\tthis help\n -l, --logfile\tlogfile path ( /var/log/ec2_collective/ec2-cagent.log )\n -p, --pidfile\tpath to pidfile (/var/run/ec2-cagent.pid)\n')
@@ -300,7 +308,10 @@ def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
 
     logging.debug('Looking for new messages on SQS')
 
+    # This call might never return...
+    signal.alarm(CFG['general']['timeout'])
     msgs = sqs_read_queue.get_messages(num_messages=10, visibility_timeout=0)
+    signal.alarm(0)
 
     for msg in msgs:
         READ_MSGS_LTS=time.time()
