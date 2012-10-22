@@ -383,33 +383,52 @@ def receive_queue_msg ( ):
     logging.debug('Worker received STOP signal - terminating')
 
 def write_sqs_msg (response, sqs_write_queue):
- 
-    response=json.dumps(response)
+
+    # response - dict
+    # response_in_json - json string
+    # message - sqs message object
 
     try:
-        message = sqs_write_queue.new_message(response)
+        response_in_json=json.dumps(response)
+        logging.debug ('Response size in json ' + str(len(response_in_json)))
+        message = sqs_write_queue.new_message(response_in_json)
     except:
         logging.error('Failed to create message object - check queue name')
         return False
 
-    if len(message) >= 65536:
-        logging.error ('Response message is too big to put on SQS')
+    if len(message) >= 65536 and 'output' in response:
+        logging.warn ('Response message is too big to put on SQS ' + str(len(message)) + ' - sending last 1000 characters')
+
+	# Let's make sure we can actually decrease response....
+	if len(response['output']) > 1000:
+            response['output'] = '--- OUTPUT CAPPED ---\n' + str(response['output'][-1000:])
+	else:
+            logging.error ('Message size is too big to put on sqs, but it is not in the actual output!')
+            response['output'] = 'Panic response from agent - please check exit code'
+
+        try:
+            response_in_json=json.dumps(response)
+            logging.debug ('Response size in json ' + str(len(response_in_json)))
+            message = sqs_write_queue.new_message(response_in_json)
+        except:
+            logging.error('Failed to create message object - check queue name')
+            return False
+
+    elif len(message) >= 65536:
+        logging.error ('Response message is too big to put on SQS ' + str(len(message)))
         return False
     
-    # Write message 5 times to make sure receiver gets it
-    written=False
+    # Retry 3 times
     for i in range(0, 3):
         org = sqs_write_queue.write(message)
-        if org.id is None and written is False:
+        if org.id is None:
             logging.error ('Failed to write response message to SQS')
             time.sleep(1)
         else:
             logging.debug('Wrote response to SQS')
-            # Remove to send multiple responses
             return True
-            written=True
 
-    return written
+    return False
 
 def get_config():
     # CFILE 
