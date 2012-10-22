@@ -165,7 +165,7 @@ def get_yaml_facts ():
             logging.error( yaml_file + ' file does not exist')
             continue
 
-	# If we get to here - the file looks good
+        # If we get to here - the file looks good
         valid_yaml_files.append(yaml_file)
 
     for yaml_file in valid_yaml_files:
@@ -316,7 +316,7 @@ def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
     for msg in msgs:
         READ_MSGS_LTS=time.time()
 
-	if msg.id in READ_MSGS:
+        if msg.id in READ_MSGS:
             continue
         else:
             READ_MSGS.append(msg.id)
@@ -328,12 +328,12 @@ def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
         message['orgid'] = msg.id
 
         # We send multiple duplicate messages - lets avoid handling all of them
-	if batch_msg_id in READ_MSGS:
+        if batch_msg_id in READ_MSGS:
             continue
         else:
             READ_MSGS.append(batch_msg_id)
   
-	if fact_lookup(wf, wof, yaml_facts ):
+        if fact_lookup(wf, wof, yaml_facts ):
             logging.debug('SQS messages did not pass filter')
             READ_MSGS.append(msg.id)
             continue
@@ -399,10 +399,10 @@ def write_sqs_msg (response, sqs_write_queue):
     if len(message) >= 65536 and 'output' in response:
         logging.warn ('Response message is too big to put on SQS ' + str(len(message)) + ' - sending last 1000 characters')
 
-	# Let's make sure we can actually decrease response....
-	if len(response['output']) > 1000:
+        # Let's make sure we can actually decrease response....
+        if len(response['output']) > 1000:
             response['output'] = '--- OUTPUT CAPPED ---\n' + str(response['output'][-1000:])
-	else:
+        else:
             logging.error ('Message size is too big to put on sqs, but it is not in the actual output!')
             response['output'] = 'Panic response from agent - please check exit code'
 
@@ -552,7 +552,7 @@ def fact_lookup (wf, wof, yaml_facts ):
             else:
                 if f in yaml_facts:
                     logging.debug('Skip message - wof matched')
-    		    return True
+                    return True
 
     # Without is set but we did not find it, if wf is not set we return False ( process message )
     if wf is None:
@@ -703,7 +703,7 @@ def schedule_receive_sqs_msg():
 
             # Clear references to old messages ( keep messages until we haven't done anything for 6 minutes ) 
             # AWS SQS queues must have this setting
-            # Message Retention Period: 	5 minutes
+            # Message Retention Period:     5 minutes
             # That will allow AWS to purge old messages a minute before we might pick it up again.
             if ( READ_MSGS_LTS < (time.time() - 360 )):
                 READ_MSGS_LTS=time.time()
