@@ -11,7 +11,7 @@
 #
 # ec2_collective	This init.d script is used to start ec2_collective agent
 
-ENV="env -i LANG=C PATH=/usr/local/bin:/usr/bin:/bin"
+ENV="env -i LANG=C PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 HOME=/root
 
 EC2_CAGENT=/usr/sbin/ec2-cagent
@@ -54,7 +54,7 @@ start() {
 		echo "ec2-cagent is already running..."
 	else
 		echo "Starting ec2-cagent"
-		$EC2_CAGENT
+		$ENV $EC2_CAGENT
 	fi
 }
 
