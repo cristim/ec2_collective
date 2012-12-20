@@ -413,7 +413,9 @@ def write_sqs_msg (response, sqs_write_queue):
     
     # Retry 3 times
     for i in range(0, 3):
+        signal.alarm(CFG['general']['timeout'])
         org = sqs_write_queue.write(message)
+        signal.alarm(0)
         if org.id is None:
             logging.error ('Failed to write response message to SQS')
             time.sleep(1)
@@ -746,14 +748,18 @@ def establish_sqs_conn (queue):
     # Connect with key, secret and region
     try:
         logging.debug('establish_sqs_conn: Connecting to region ' + str(CFG['aws']['region']))
+        signal.alarm(CFG['general']['timeout'])
         conn = connect_to_region(CFG['aws']['region'])
+        signal.alarm(0)
     except:
         logging.error('Could not connect to SQS - check your authentication')
         sys.exit(1)
 
     try:
         logging.debug('establish_sqs_conn: Getting queue url for ' + str(queue))
+        signal.alarm(CFG['general']['timeout'])
         queue = conn.get_queue(queue)
+        signal.alarm(0)
     except:
         logging.error('Could not determine SQS queue url - check your authentication')
         sys.exit(1)
