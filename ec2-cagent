@@ -4,7 +4,6 @@
 from socket import gethostname
 import simplejson as json
 import subprocess
-from threading import Timer
 import time
 import sched
 import signal
@@ -665,14 +664,27 @@ def schedule_receive_sqs_msg():
     READ_MSGS=[]
     READ_MSGS_LTS=time.time()
 
-    try:
-        while True:
-            # Reload yaml facts if available
+    if CFG['general']['yaml_facts'] == True:
+        logging.info('SQS receiver waiting for initial facts')
+        while yaml_facts is None:
             if yaml_queue.qsize() > 0:
                 try:
                     yaml_facts = yaml_queue.get(False)
                 except Empty:
                     logging.debug('schedule_receive_sqs_msg: Yaml queue is empty')
+            time.sleep(1)
+
+        logging.info('SQS receiver populated with initial facts')
+
+    try:
+        while True:
+            # Reload yaml facts if available
+            if CFG['general']['yaml_facts'] == True:
+                if yaml_queue.qsize() > 0:
+                    try:
+                        yaml_facts = yaml_queue.get(False)
+                    except Empty:
+                        logging.debug('schedule_receive_sqs_msg: Yaml queue is empty')
 
             s.enter(sqs_poll_interval, 1, receive_sqs_msg, (sqs_read_queue, yaml_facts))
             s.run()
