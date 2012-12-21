@@ -42,22 +42,31 @@ Create those 3 queues with a prefix e.g. :
 - *testing_master* Write queue for publisher / read queue for subscriber
 
 Default Visibility Timeout: 0 seconds
+
 Message Retention Period: 1 minutes
+
 Maximum Message Size: 64 KB
+
 Receive Message Wait Time: 20 seconds
 
 - *testing_agent* Write queue fro subscriber / read queu for publisher
 
 Default Visibility Timeout: 0 seconds
+
 Message Retention Period: 1 minutes
+
 Maximum Message Size: 64 KB
+
 Receive Message Wait Time: 0 seconds
 
 - *testing_facts* Cheat queue to allow publisher to know how many replies to expect
 
 Default Visibility Timeout: 0 seconds
+
 Message Retention Period: 1 minutes
+
 Maximum Message Size: 64 KB
+
 Receive Message Wait Time: 0 seconds
 
 Be sure to set the queue configuration accordingly or else ec2_collective will fail to work.
