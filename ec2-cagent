@@ -46,14 +46,14 @@ yaml_queue = Queue()
 poll_control_queue = Queue()
 
 def terminate_process(signum, frame):
-    logging.info ('Process asked to exit...')
+    logging.info ('Process asked to exit (SIGTERM) - exiting')
     sys.exit(0)
 
 signal.signal(signal.SIGTERM, terminate_process)
 
 # Signal handler
 def master_timeout(signum, frame):
-    logging.error('Timeout reached - exiting')
+    logging.error('AWS request timeout reached (SIGALARM) - exiting')
     sys.exit(1)
 
 # When timeout happens master_timeout definition executes raising an exception
@@ -303,6 +303,7 @@ def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
 
     # This call might never return...
     signal.alarm(CFG['general']['timeout'])
+    logging.info ('Attempting to get messages from SQS')
     msgs = sqs_read_queue.get_messages(num_messages=10, visibility_timeout=0)
     signal.alarm(0)
 
@@ -414,6 +415,7 @@ def write_sqs_msg (response, sqs_write_queue):
     # Retry 3 times
     for i in range(0, 3):
         signal.alarm(CFG['general']['timeout'])
+        logging.info ('Attempting write to SQS')
         org = sqs_write_queue.write(message)
         signal.alarm(0)
         if org.id is None:
@@ -747,7 +749,7 @@ def establish_sqs_conn (queue):
 
     # Connect with key, secret and region
     try:
-        logging.debug('establish_sqs_conn: Connecting to region ' + str(CFG['aws']['region']))
+        logging.info('Connecting to region ' + str(CFG['aws']['region']))
         signal.alarm(CFG['general']['timeout'])
         conn = connect_to_region(CFG['aws']['region'])
         signal.alarm(0)
@@ -756,7 +758,7 @@ def establish_sqs_conn (queue):
         sys.exit(1)
 
     try:
-        logging.debug('establish_sqs_conn: Getting queue url for ' + str(queue))
+        logging.info('Getting queue url for ' + str(queue))
         signal.alarm(CFG['general']['timeout'])
         queue = conn.get_queue(queue)
         signal.alarm(0)
