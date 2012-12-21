@@ -43,7 +43,6 @@ CFILE='/etc/ec2_collective/ec2-cagent.json'
 task_queue = Queue()
 done_queue = Queue()
 yaml_queue = Queue()
-poll_control_queue = Queue()
 
 def terminate_process(signum, frame):
     logging.info ('Process asked to exit (SIGTERM) - exiting')
@@ -306,6 +305,7 @@ def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
     logging.info ('Attempting to get messages from SQS')
     msgs = sqs_read_queue.get_messages(num_messages=10, visibility_timeout=0)
     signal.alarm(0)
+    logging.info ('Request messages from SQS success')
 
     for msg in msgs:
         READ_MSGS_LTS=time.time()
@@ -336,9 +336,6 @@ def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
 
         logging.debug('receive_sqs_msg: Putting SQS message on task queue')
         task_queue.put(message)
-
-        poll_control_queue.put(CFG['general']['sqs_att_poll_interval'])
-
 
 def process_msg ( message ):
 
@@ -422,6 +419,7 @@ def write_sqs_msg (response, sqs_write_queue):
             logging.error ('Failed to write response message to SQS')
             time.sleep(1)
         else:
+            logging.info ('Write to SQS success')
             logging.debug('write_sqs_msg: Wrote response to SQS')
             return True
 
@@ -614,7 +612,7 @@ def schedule_check_done_queue():
 
     try:
         while True:
-            s.enter(CFG['general']['sqs_att_poll_interval'], 1, check_done_queue, (sqs_write_queue,))
+            s.enter(CFG['general']['done_queue_poll_interval'], 1, check_done_queue, (sqs_write_queue,))
             s.run()
 
     except (KeyboardInterrupt, SystemExit):
@@ -652,16 +650,12 @@ def fork_check_done_queue():
 
     return P
 
-def sqs_poll_slow_down():
-    poll_control_queue.put(CFG['general']['sqs_poll_interval'])
-
 def schedule_receive_sqs_msg():
 
     # Make connectoin for this child
     sqs_read_queue = establish_sqs_conn(CFG['aws']['sqs_read_queue'])
 
     s = sched.scheduler(time.time, time.sleep)
-    t = []
     sqs_poll_interval = CFG['general']['sqs_poll_interval']
     yaml_facts = None
 
@@ -683,34 +677,11 @@ def schedule_receive_sqs_msg():
             s.enter(sqs_poll_interval, 1, receive_sqs_msg, (sqs_read_queue, yaml_facts))
             s.run()
 
-            # Check if we need to decrease poll sime 
-            if poll_control_queue.qsize() > 0:
-                try:
-                    new_sqs_poll_interval = poll_control_queue.get(False)
-                    if ( new_sqs_poll_interval <= sqs_poll_interval ):
-                        logging.debug('schedule_receive_sqs_msg: SQS attention mode ON')
-                        sqs_poll_interval = new_sqs_poll_interval
-                        for timer in t:
-                            logging.debug('schedule_receive_sqs_msg: Resetting SQS attention timer')
-                            timer.cancel()
-                            timer.join(1.0)
-                            t.remove(timer)
-                        t_init = Timer(CFG['general']['sqs_att_poll_period'], sqs_poll_slow_down, ())
-                        t_init.daemon=True
-                        t_init.start()
-                        t.append(t_init)
-                    else:
-                        logging.debug('schedule_receive_sqs_msg: SQS attention mode OFF')
-                        sqs_poll_interval = new_sqs_poll_interval
-
-                except Empty:
-                    logging.debug('schedule_receive_sqs_msg: poll_control_queue queue is empty')
-
-            # Clear references to old messages ( keep messages until we haven't done anything for 6 minutes ) 
+            # Clear references to old messages ( keep messages until we haven't done anything for 2 minutes ) 
             # AWS SQS queues must have this setting
-            # Message Retention Period:     5 minutes
+            # Message Retention Period:     1 minutes
             # That will allow AWS to purge old messages a minute before we might pick it up again.
-            if ( READ_MSGS_LTS < (time.time() - 360 )):
+            if ( READ_MSGS_LTS < (time.time() - 120 )):
                 READ_MSGS_LTS=time.time()
                 logging.debug('schedule_receive_sqs_msg: Emptying list of read messages')
                 READ_MSGS=[]
