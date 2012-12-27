@@ -655,7 +655,6 @@ def schedule_receive_sqs_msg():
     sqs_read_queue = establish_sqs_conn(CFG['aws']['sqs_read_queue'])
 
     s = sched.scheduler(time.time, time.sleep)
-    sqs_poll_interval = CFG['general']['sqs_poll_interval']
     yaml_facts = None
 
     # We'll keep old messages here
@@ -686,7 +685,7 @@ def schedule_receive_sqs_msg():
                     except Empty:
                         logging.debug('schedule_receive_sqs_msg: Yaml queue is empty')
 
-            s.enter(sqs_poll_interval, 1, receive_sqs_msg, (sqs_read_queue, yaml_facts))
+            s.enter(CFG['general']['sqs_poll_interval'], 1, receive_sqs_msg, (sqs_read_queue, yaml_facts))
             s.run()
 
             # Clear references to old messages ( keep messages until we haven't done anything for 2 minutes ) 
