@@ -5,7 +5,9 @@ from socket import gethostname
 import simplejson as json
 import subprocess
 import time
-import sched
+from threading import Timer
+from threading import Thread
+from threading import active_count
 import signal
 import sys
 import yaml
@@ -42,6 +44,7 @@ CFILE='/etc/ec2_collective/ec2-cagent.json'
 task_queue = Queue()
 done_queue = Queue()
 yaml_queue = Queue()
+oldmsgs_queue = Queue()
 
 def terminate_process(signum, frame):
     logging.info ('Process asked to exit (SIGTERM) - exiting')
@@ -142,9 +145,10 @@ def write_yaml_to_queue ( message, sqs_facts_queue ):
     logging.debug('write_yaml_to_queue: Writing facts to sqs facts queue')
     write_sqs_msg (message, sqs_facts_queue)
 
-def get_yaml_facts (sqs_facts_queue):
+def get_yaml_facts ():
     logging.debug('get_yaml_facts: Loading facts')
- 
+    sqs_facts_queue = establish_sqs_conn(CFG['aws']['sqs_facts_queue'])
+
     # Define dict for storage
     dataMap = {}
     valid_yaml_files = []
@@ -188,11 +192,8 @@ def get_yaml_facts (sqs_facts_queue):
 
         if CFG['general']['use_facts_queue'] == True:
             write_yaml_to_queue(dataMap, sqs_facts_queue)
-
-        return True
     else:
         logging.debug('get_yaml_facts: Facts are empty')
-        return False
 
 def cli_mode (message):
 
@@ -293,26 +294,51 @@ def script_mode (message):
     response={'mode': message['mode'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
     return response
 
-def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
-    global READ_MSGS
-    global READ_MSGS_LTS
+def clean_old_msgs(read_msgs):
+
+    # Clear references to old messages ( keep messages until we haven't done anything for 2 minutes ) 
+    # AWS SQS queues must have this setting
+    # Message Retention Period:     1 minutes
+    # That will allow AWS to purge old messages a minute before we might pick it up again.
+
+    for id, lastseen in read_msgs.items():    
+        if lastseen < (time.time() - 120 ):
+            logging.debug('clean_old_msgs: removing old message')
+            del read_msgs[id]
+
+    return read_msgs
+
+def receive_sqs_msg ( yaml_facts ):
+    sqs_read_queue = establish_sqs_conn(CFG['aws']['sqs_read_queue'])
+
+    try:
+        read_msgs = oldmsgs_queue.get(False)
+        read_msgs = clean_old_msgs(read_msgs)
+        logging.debug('receive_sqs_msg: Old received messages re-read')
+    except Empty:
+            logging.debug('receive_sqs_msg: oldmsgs queue is empty')
+            read_msgs = {}
 
     logging.debug('receive_sqs_msg: Looking for new messages on SQS')
 
     # This call might never return...
     signal.alarm(CFG['general']['timeout'])
     logging.info ('Attempting to get messages from SQS')
-    msgs = sqs_read_queue.get_messages(num_messages=10, visibility_timeout=0)
+
+    try:
+        msgs = sqs_read_queue.get_messages(num_messages=10, visibility_timeout=0)
+    except (KeyboardInterrupt, SystemExit):
+        logging.info('Receive sqs messages process exiting...')
+        sys.exit(0)
+
     signal.alarm(0)
     logging.info ('Request messages from SQS success')
 
     for msg in msgs:
-        READ_MSGS_LTS=time.time()
-
-        if msg.id in READ_MSGS:
+        if msg.id in read_msgs:
             continue
         else:
-            READ_MSGS.append(msg.id)
+            read_msgs[msg.id] = time.time()
    
         message=json.loads(msg.get_body())
         batch_msg_id = message['batch_msg_id']
@@ -321,20 +347,24 @@ def receive_sqs_msg ( sqs_read_queue, yaml_facts ):
         message['orgid'] = msg.id
 
         # We send multiple duplicate messages - lets avoid handling all of them
-        if batch_msg_id in READ_MSGS:
+        if batch_msg_id in read_msgs:
             continue
         else:
-            READ_MSGS.append(batch_msg_id)
+            read_msgs[batch_msg_id] = time.time()
   
         if fact_lookup(wf, wof, yaml_facts ):
             logging.debug('receive_sqs_msg: SQS messages did not pass filter')
-            READ_MSGS.append(msg.id)
+            read_msgs[msg.id] = time.time()
             continue
 
         logging.debug('receive_sqs_msg: New valid SQS message received')
 
         logging.debug('receive_sqs_msg: Putting SQS message on task queue')
         task_queue.put(message)
+
+    # End by putting all old messages on the queue
+    logging.debug('receive_sqs_msg: Putting received messages on oldmsgs queue')
+    oldmsgs_queue.put(read_msgs)
 
 def process_msg ( message ):
 
@@ -366,11 +396,16 @@ def process_msg ( message ):
 
 def receive_queue_msg ( ):
 
-    for message in iter(task_queue.get, 'STOP'):
+    try:
+        message = task_queue.get(False)
         logging.debug('receive_queue_msg: Task read from task queue')
         done_queue.put(process_msg(message))
+    except Empty:
+            logging.debug('check_done_queue: Done queue is empty')
+    except:
+            logging.debug('check_done_queue: Unknown error')
 
-    logging.debug('receive_queue_msg: Worker received STOP signal - terminating')
+    logging.debug('receive_queue_msg: Worker ended - terminating')
 
 def write_sqs_msg (response, sqs_write_queue):
 
@@ -575,157 +610,29 @@ def fact_lookup (wf, wof, yaml_facts ):
         logging.debug('fact_lookup: Skip message - no wf match')
         return True
 
-def fork_worker():
-    # process control
-    P = Process(target=receive_queue_msg, args=())
-    P.daemon=True
-    P.start()
-    logging.debug('fork_worker: Forking worker with pid ' + str(P.pid))
+def thread_worker():
+
+    thread = Thread(target = receive_queue_msg, args = ())
+    thread.daemon=True
+    thread.start()
 
 def check_task_queue():
     logging.debug('check_task_queue: Checking task queue')
     if task_queue.qsize() > 0:
-        fork_worker()
+        thread_worker()
 
-def check_done_queue(sqs_write_queue):
+def check_done_queue():
     logging.debug('check_done_queue: Checking done queue')
 
     if done_queue.qsize() > 0:
         try:
             response = done_queue.get(False)
             logging.debug('check_done_queue: Response read from done queue')
+            sqs_write_queue = establish_sqs_conn(CFG['aws']['sqs_write_queue'])
             write_sqs_msg (response, sqs_write_queue)
 
-            if 'discovery' in response and response['discovery'] == 1:
-                logging.debug('check_done_queue: Discovery message sent - not stopping worker')
-            else:
-                task_queue.put('STOP')
         except Empty:
             logging.debug('check_done_queue: Done queue is empty')
-
-def schedule_check_done_queue():
-
-    sqs_write_queue = establish_sqs_conn(CFG['aws']['sqs_write_queue'])
-
-    s = sched.scheduler(time.time, time.sleep)
-
-    try:
-        while True:
-            s.enter(CFG['general']['done_queue_poll_interval'], 1, check_done_queue, (sqs_write_queue,))
-            s.run()
-
-    except (KeyboardInterrupt, SystemExit):
-        logging.info('Done queue checker process exiting...')
-        sys.exit(0)
-
-def schedule_get_yaml_facts():
-
-    sqs_facts_queue = establish_sqs_conn(CFG['aws']['sqs_facts_queue'])
-
-    # Get the facts initially as quickly as possible
-    get_yaml_facts(sqs_facts_queue)
-
-    s = sched.scheduler(time.time, time.sleep)
-
-    try:
-        while True:
-            s.enter(CFG['general']['yaml_facts_refresh'], 1, get_yaml_facts, (sqs_facts_queue,))
-            s.run()
-
-    except (KeyboardInterrupt, SystemExit):
-        logging.info('Get facts process exiting...')
-        sys.exit(0)
-
-def fork_check_done_queue():
-    # process control
-    P = Process(target=schedule_check_done_queue, args=())
-    P.daemon=True
-    P.start()
-    logging.debug('fork_check_done_queue: Forking worker to handle done queue with pid ' + str(P.pid))
-
-    # Calling active_children will also make sure that we clean up old hanging children
-    running_children = len(active_children())
-    logging.debug('fork_check_done_queue: ' + str(running_children) + ' active children')
-
-    return P
-
-def schedule_receive_sqs_msg():
-
-    # Make connectoin for this child
-    sqs_read_queue = establish_sqs_conn(CFG['aws']['sqs_read_queue'])
-
-    s = sched.scheduler(time.time, time.sleep)
-    yaml_facts = None
-
-    # We'll keep old messages here
-    global READ_MSGS
-    global READ_MSGS_LTS
-    READ_MSGS=[]
-    READ_MSGS_LTS=time.time()
-
-    if CFG['general']['yaml_facts'] == True:
-        logging.info('SQS receiver waiting for initial facts')
-        while yaml_facts is None:
-            if yaml_queue.qsize() > 0:
-                try:
-                    yaml_facts = yaml_queue.get(False)
-                except Empty:
-                    logging.debug('schedule_receive_sqs_msg: Yaml queue is empty')
-            time.sleep(1)
-
-        logging.info('SQS receiver populated with initial facts')
-
-    try:
-        while True:
-            # Reload yaml facts if available
-            if CFG['general']['yaml_facts'] == True:
-                if yaml_queue.qsize() > 0:
-                    try:
-                        yaml_facts = yaml_queue.get(False)
-                    except Empty:
-                        logging.debug('schedule_receive_sqs_msg: Yaml queue is empty')
-
-            s.enter(CFG['general']['sqs_poll_interval'], 1, receive_sqs_msg, (sqs_read_queue, yaml_facts))
-            s.run()
-
-            # Clear references to old messages ( keep messages until we haven't done anything for 2 minutes ) 
-            # AWS SQS queues must have this setting
-            # Message Retention Period:     1 minutes
-            # That will allow AWS to purge old messages a minute before we might pick it up again.
-            if ( READ_MSGS_LTS < (time.time() - 120 )):
-                READ_MSGS_LTS=time.time()
-                logging.debug('schedule_receive_sqs_msg: Emptying list of read messages')
-                READ_MSGS=[]
-
-    except (KeyboardInterrupt, SystemExit):
-        logging.info('Receive sqs messages process exiting...')
-        sys.exit(0)
-
-def fork_receive_sqs_msg():
-    # process control
-    P = Process(target=schedule_receive_sqs_msg, args=())
-    P.daemon=True
-    P.start()
-    logging.debug('fork_receive_sqs_msg: Forking worker to handle sqs queue with pid ' + str(P.pid))
-
-    # Calling active_children will also make sure that we clean up old hanging children
-    running_children = len(active_children())
-    logging.debug('fork_receive_sqs_msg: ' + str(running_children) + ' active children')
-
-    return P
-
-def fork_get_yaml_facts():
-    # process control
-    P = Process(target=schedule_get_yaml_facts, args=())
-    P.daemon=True
-    P.start()
-    logging.debug('fork_get_yaml_facts: Forking worker to periodically refresh facts with pid ' + str(P.pid))
-
-    # Calling active_children will also make sure that we clean up old hanging children
-    running_children = len(active_children())
-    logging.debug('fork_get_yaml_facts: ' + str(running_children) + ' active children')
-
-    return P
 
 def establish_sqs_conn (queue):
 
@@ -754,37 +661,79 @@ def establish_sqs_conn (queue):
 
     return queue
 
-def main ():
-
-    # Task queue scheduler
-    main_task_sched = sched.scheduler(time.time, time.sleep)
-
-    # fork processes for sqs queue check, done queue checking and yaml facts
-    proc_receiver=fork_receive_sqs_msg()
-    proc_done_queue=fork_check_done_queue()
+def main (yaml_facts=None, running_threads_last=0):
 
     if CFG['general']['yaml_facts'] == True:
-        proc_get_yaml_facts=fork_get_yaml_facts()
+        thread_get_yaml_facts = Timer(0, get_yaml_facts)
+        thread_get_yaml_facts.setDaemon(True)
+        thread_get_yaml_facts.start()
 
-    while ( True ):
-        main_task_sched.enter(0.1, 1, check_task_queue, ())
-        main_task_sched.run()
+        logging.info('main: Waiting for initial facts')
+        while yaml_facts is None:
+            if yaml_queue.qsize() > 0:
+                try:
+                    yaml_facts = yaml_queue.get(False)
+                except Empty:
+                    logging.debug('main: Yaml queue is empty')
+            time.sleep(1)
+        logging.info('main: populated initial facts')
 
-        # Calling active_children will also make sure that we clean up old hanging children
-        running_children = len(active_children())
-        logging.debug('main: ' + str(running_children) + ' active children')
+    # Initially set off eash thread
+    thread_receiver = Timer(CFG['general']['sqs_poll_interval'], receive_sqs_msg, (yaml_facts,))
+    thread_receiver.setDaemon(True)
+    thread_receiver.start()
 
-        if CFG['general']['yaml_facts'] == True and not proc_get_yaml_facts.is_alive():
-            logging.error ('Get yaml facts process just died - restarting')
-            proc_get_yaml_facts=fork_get_yaml_facts()
+    thread_done_queue = Timer(CFG['general']['queue_poll_interval'], check_done_queue)
+    thread_done_queue.setDaemon(True)
+    thread_done_queue.start()
 
-        if not proc_receiver.is_alive():
-            logging.error ('SQS receiver process just died - restarting')
-            proc_receiver=fork_receive_sqs_msg()
+    thread_task_queue = Timer(CFG['general']['queue_poll_interval'], check_task_queue)
+    thread_task_queue.setDaemon(True)
+    thread_task_queue.start()
 
-        if not proc_done_queue.is_alive():
-            logging.error ('Done queue checker process just died - restarting')
-            proc_done_queue=fork_check_done_queue()
+    try:
+        while True:
+            running_threads = active_count()
+            if running_threads != running_threads_last:
+                running_threads_last = running_threads
+                logging.debug('main: ' + str(running_threads) + ' active threads')
+ 
+            if not thread_receiver.is_alive():
+                thread_receiver.join()
+                thread_receiver = Timer(CFG['general']['sqs_poll_interval'], receive_sqs_msg, (yaml_facts,))
+                thread_receiver.setDaemon(True)
+                thread_receiver.start()
+        
+            if not thread_done_queue.is_alive():
+                thread_done_queue.join()
+                thread_done_queue = Timer(CFG['general']['queue_poll_interval'], check_done_queue)
+                thread_done_queue.setDaemon(True)
+                thread_done_queue.start()
+    
+            if not thread_task_queue.is_alive():
+                thread_task_queue.join()
+                thread_task_queue = Timer(CFG['general']['queue_poll_interval'], check_task_queue)
+                thread_task_queue.setDaemon(True)
+                thread_task_queue.start()
+
+            if CFG['general']['yaml_facts'] == True and not thread_get_yaml_facts.is_alive():
+                thread_get_yaml_facts.join()
+                thread_get_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts)
+                thread_get_yaml_facts.setDaemon(True)
+                thread_get_yaml_facts.start()
+   
+                if yaml_queue.qsize() > 0:
+                    try:
+                        yaml_facts = yaml_queue.get(False)
+                    except Empty:
+                        logging.debug('main: Yaml queue is empty')
+
+            # Be nice on the cpu
+            time.sleep(CFG['general']['queue_poll_interval'])
+
+    except (KeyboardInterrupt, SystemExit):
+        logging.info('Main loop caught keyboard interrupt...')
+        sys.exit(0)
 
 if __name__ == "__main__":
 

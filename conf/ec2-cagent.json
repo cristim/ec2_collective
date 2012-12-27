@@ -3,7 +3,7 @@
         "log_level": "INFO",
         "timeout": 30,
         "sqs_poll_interval": 1,
-        "done_queue_poll_interval": 0.1,
+        "queue_poll_interval": 0.1,
         "yaml_facts": true,
         "yaml_facts_path": "/mnt/facts/facts.yaml,/var/lib/puppet/state/classes.txt",
         "yaml_facts_refresh": 30,
