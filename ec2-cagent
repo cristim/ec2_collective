@@ -52,14 +52,6 @@ def terminate_process(signum, frame):
 
 signal.signal(signal.SIGTERM, terminate_process)
 
-# Signal handler
-def master_timeout(signum, frame):
-    logging.error('AWS request timeout reached (SIGALARM) - exiting')
-    sys.exit(1)
-
-# When timeout happens master_timeout definition executes raising an exception
-signal.signal(signal.SIGALRM, master_timeout)
-
 def usage():
     sys.stderr.write('Usage:')
     sys.stderr.write('\t' + sys.argv[0] + '\n\n -f, --foreground\trun script in foreground\n -h, --help\tthis help\n -l, --logfile\tlogfile path ( /var/log/ec2_collective/ec2-cagent.log )\n -p, --pidfile\tpath to pidfile (/var/run/ec2-cagent.pid)\n')
@@ -321,17 +313,13 @@ def receive_sqs_msg ( yaml_facts ):
 
     logging.debug('receive_sqs_msg: Looking for new messages on SQS')
 
-    # This call might never return...
-    signal.alarm(CFG['general']['timeout'])
     logging.info ('Attempting to get messages from SQS')
-
     try:
         msgs = sqs_read_queue.get_messages(num_messages=10, visibility_timeout=0)
-    except (KeyboardInterrupt, SystemExit):
-        logging.info('Receive sqs messages process exiting...')
+    except:
+        logging.error('Receive sqs messages thread exiting...')
         sys.exit(0)
 
-    signal.alarm(0)
     logging.info ('Request messages from SQS success')
 
     for msg in msgs:
@@ -445,10 +433,12 @@ def write_sqs_msg (response, sqs_write_queue):
     
     # Retry 3 times
     for i in range(0, 3):
-        signal.alarm(CFG['general']['timeout'])
         logging.info ('Attempting write to SQS')
-        org = sqs_write_queue.write(message)
-        signal.alarm(0)
+        try:
+            org = sqs_write_queue.write(message)
+        except:
+            logging.error('Failed to write to sqs - quitting thread')
+            sys.exit(0)
         if org.id is None:
             logging.error ('Failed to write response message to SQS')
             time.sleep(1)
@@ -639,18 +629,14 @@ def establish_sqs_conn (queue):
     # Connect with key, secret and region
     try:
         logging.info('Connecting to region ' + str(CFG['aws']['region']))
-        signal.alarm(CFG['general']['timeout'])
         conn = connect_to_region(CFG['aws']['region'])
-        signal.alarm(0)
     except:
         logging.error('Could not connect to SQS - check your authentication')
         sys.exit(1)
 
     try:
         logging.info('Getting queue url for ' + str(queue))
-        signal.alarm(CFG['general']['timeout'])
         queue = conn.get_queue(queue)
-        signal.alarm(0)
     except:
         logging.error('Could not determine SQS queue url - check your authentication')
         sys.exit(1)
@@ -678,7 +664,6 @@ def main (yaml_facts=None, running_threads_last=0):
             time.sleep(1)
         logging.info('main: populated initial facts')
 
-    # Initially set off eash thread
     thread_receiver = Timer(CFG['general']['sqs_poll_interval'], receive_sqs_msg, (yaml_facts,))
     thread_receiver.setDaemon(True)
     thread_receiver.start()
@@ -699,28 +684,48 @@ def main (yaml_facts=None, running_threads_last=0):
                 logging.debug('main: ' + str(running_threads) + ' active threads')
  
             if not thread_receiver.is_alive():
-                thread_receiver.join()
-                thread_receiver = Timer(CFG['general']['sqs_poll_interval'], receive_sqs_msg, (yaml_facts,))
-                thread_receiver.setDaemon(True)
-                thread_receiver.start()
+                try:
+                    thread_receiver.join(0.1)
+                    thread_receiver = Timer(CFG['general']['sqs_poll_interval'], receive_sqs_msg, (yaml_facts,))
+                    thread_receiver.setDaemon(True)
+                    thread_receiver.start()
+                except RuntimeError:
+                    logging.error('main: RuntimeError in thread_receiver control')
+                except:
+                    logging.error('main: Uknown error in thread_receiver control')
         
             if not thread_done_queue.is_alive():
-                thread_done_queue.join()
-                thread_done_queue = Timer(CFG['general']['queue_poll_interval'], check_done_queue)
-                thread_done_queue.setDaemon(True)
-                thread_done_queue.start()
+                try:
+                    thread_done_queue.join(0.1)
+                    thread_done_queue = Timer(CFG['general']['queue_poll_interval'], check_done_queue)
+                    thread_done_queue.setDaemon(True)
+                    thread_done_queue.start()
+                except RuntimeError:
+                    logging.error('main: RuntimeError in thread_done_queue control')
+                except:
+                    logging.error('main: Uknown error in thread_done_queue control')
     
             if not thread_task_queue.is_alive():
-                thread_task_queue.join()
-                thread_task_queue = Timer(CFG['general']['queue_poll_interval'], check_task_queue)
-                thread_task_queue.setDaemon(True)
-                thread_task_queue.start()
+                try:
+                    thread_task_queue.join(0.1)
+                    thread_task_queue = Timer(CFG['general']['queue_poll_interval'], check_task_queue)
+                    thread_task_queue.setDaemon(True)
+                    thread_task_queue.start()
+                except RuntimeError:
+                    logging.error('main: RuntimeError in thread_task_queue control')
+                except:
+                    logging.error('main: Uknown error in thread_task_queue control')
 
             if CFG['general']['yaml_facts'] == True and not thread_get_yaml_facts.is_alive():
-                thread_get_yaml_facts.join()
-                thread_get_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts)
-                thread_get_yaml_facts.setDaemon(True)
-                thread_get_yaml_facts.start()
+                try:
+                    thread_get_yaml_facts.join(0.1)
+                    thread_get_yaml_facts = Timer(CFG['general']['yaml_facts_refresh'], get_yaml_facts)
+                    thread_get_yaml_facts.setDaemon(True)
+                    thread_get_yaml_facts.start()
+                except RuntimeError:
+                    logging.error('main: RuntimeError in thread_get_yaml_facts control')
+                except:
+                    logging.error('main: Uknown error in thread_get_yaml_facts control')
    
                 if yaml_queue.qsize() > 0:
                     try:
@@ -732,7 +737,7 @@ def main (yaml_facts=None, running_threads_last=0):
             time.sleep(CFG['general']['queue_poll_interval'])
 
     except (KeyboardInterrupt, SystemExit):
-        logging.info('Main loop caught keyboard interrupt...')
+        logging.info('Main loop caught interrupt...')
         sys.exit(0)
 
 if __name__ == "__main__":
@@ -742,5 +747,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except (KeyboardInterrupt, SystemExit):
-        logging.info('Main process dutifully exiting...')
+        logging.info('ec2-cagent dutifully exiting...')
         sys.exit(0)

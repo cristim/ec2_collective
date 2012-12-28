@@ -1,7 +1,6 @@
 { 
     "general": {
         "log_level": "INFO",
-        "timeout": 30,
         "sqs_poll_interval": 1,
         "queue_poll_interval": 0.1,
         "yaml_facts": true,

@@ -159,6 +159,11 @@ Perform the following steps on the servers you wish to orchestrate
 - *cp conf/ec2-cagent.json /etc/ec2_collective*
 - Add a /etc/boto.cfg including the AWS IAM credentials
 
+Edit your /etc/boto.cfg to contain
+
+    [Boto]
+    http_socket_timeout = 30
+
 Edit your ec2-cagent.json according to your queues and fact file locations.
 
     { 
