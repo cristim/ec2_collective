@@ -5,31 +5,32 @@ import sys
 
 # CHANGE THESE SETTINGS
 
+# From agent cfg
+SQS_POLL_INTERVAL=1
+YAML_FACTS_REFRESH=30
+
+# FROM AWS SQS
+RECEIVE_MESSAGE_WAIT_TIME=20
+
 # Number of servers in farm
 SERVERS=50
 
 # Commands you issue pr day
 COMMANDS_PER_DAY=100
-
-# Poll interval from config file
-SQS_POLL_INTERVAL=2
-
-# Attention poll inteval from config file
-SQS_ATT_POLL_INTERVAL=0.1
-
-# Attention time
-SQS_ATT_POLL_PERIOD=60
+AVG_COMMAND_TIME=10
 
 # Days in a month
 DAYS_IN_MONTH=31
 
 def calculate ( free_tier_req, dollar_pr_request ):
-    poll_request_pr_day = ( (60 / SQS_POLL_INTERVAL) * 60 * SERVERS * 24 )
-    att_poll_requests_pr_day = ( COMMANDS_PER_DAY * ( SQS_ATT_POLL_PERIOD / SQS_ATT_POLL_INTERVAL ) )
-    total_request_pr_month = ( (att_poll_requests_pr_day  + poll_request_pr_day) * DAYS_IN_MONTH )
+    poll_request_pr_day = ( ( 60 / RECEIVE_MESSAGE_WAIT_TIME ) * 60 * SERVERS * 24 )
+    att_poll_requests_pr_day = ( COMMANDS_PER_DAY * ( AVG_COMMAND_TIME / SQS_POLL_INTERVAL) * SERVERS )
+    yaml_write_requests_pr_day = ( (60 / YAML_FACTS_REFRESH) * 60 * SERVERS * 24)
+    total_request_pr_month = ( (att_poll_requests_pr_day  + poll_request_pr_day + yaml_write_requests_pr_day) * DAYS_IN_MONTH )
     price_pr_month = ( (total_request_pr_month - free_tier_req) * dollar_pr_request )
     print 'SQS check request amount to $' + str(poll_request_pr_day * DAYS_IN_MONTH * dollar_pr_request) 
     print 'SQS attention check request amount to $' + str(att_poll_requests_pr_day * DAYS_IN_MONTH * dollar_pr_request)
+    print 'SQS yaml request amount to $' + str(yaml_write_requests_pr_day * DAYS_IN_MONTH * dollar_pr_request)
     print 'SQS price pr month in $' + str(price_pr_month)
 
 def main ():
