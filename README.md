@@ -42,9 +42,9 @@ Use the tools/sqs-price-calculator to calculate the price for your environment.
 How does it work
 --------
 
-Please familiarize yourself with the standard SQS[SQS] documentation
+Please familiarize yourself with the standard [SQS][SQS] documentation
 
-And the long polling document[LONGPOLLING]
+And the long polling [document][LONGPOLLING]
 
 Messages containing commands are pushed by the master ( ec2-cmaster ) to a specific SQS queue where agents ( ec2-cagent ) are 'listening'. The agents are actually continuously polling the queue using the long polling SQS feature in order to limit the amount of requests towards AWS which bills by request. 
 
@@ -220,7 +220,7 @@ Master installation
 
 Perform the following steps on your workstations where you wish to perform the orchestration
 
-- *cp ec2-cmaster <whereever> && chmod +xec2-cagent*
+- *cp ec2-cmaster whereever && chmod +xec2-cagent*
 - *mkdir /etc/ec2_collective*
 - *cp conf/ec2-cmaster.json /etc/ec2_collective*
 - Add a /etc/boto.cfg including the AWS IAM credentials
@@ -246,9 +246,9 @@ Edit your ec2-cmaster.json according to your queues.
         "aws": {
             "region": "eu-west-1",
             "default_queue_name": "testing",
-            "write_queue_suffix": "_ec2_master",
-            "read_queue_suffix": "_ec2_agent",
-            "facts_queue_suffix": "_ec2_facts"
+            "write_queue_suffix": "_master",
+            "read_queue_suffix": "_agent",
+            "facts_queue_suffix": "_facts"
         }
     }
 
