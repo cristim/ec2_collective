@@ -5,9 +5,6 @@ from socket import gethostname
 import simplejson as json
 import subprocess
 import time
-from threading import Timer
-from threading import Thread
-from threading import active_count
 import signal
 import sys
 import yaml
@@ -18,6 +15,13 @@ import logging
 import pkg_resources
 import fcntl
 
+# Required to support threads
+from threading import Timer
+from threading import Thread
+from threading import active_count
+from Queue import Queue
+from Queue import Empty
+
 # S3 stuff
 from boto.s3.key import Key
 from boto.s3.connection import S3Connection
@@ -27,10 +31,6 @@ from boto.exception import S3ResponseError
 from boto.sqs.connection import SQSConnection
 from boto.sqs.regioninfo import SQSRegionInfo
 from boto.sqs import connect_to_region
-
-# Forking stuff
-from multiprocessing import Process, Queue, active_children
-from Queue import Empty
 
 try:
     pkg_resources.require("Boto>=1.9b")
@@ -389,9 +389,9 @@ def receive_queue_msg ( ):
         logging.debug('receive_queue_msg: Task read from task queue')
         done_queue.put(process_msg(message))
     except Empty:
-            logging.debug('check_done_queue: Done queue is empty')
+            logging.debug('receive_queue_msg: Task queue is empty')
     except:
-            logging.debug('check_done_queue: Unknown error')
+            logging.debug('receive_queue_msg: Unknown error in processing task queue')
 
     logging.debug('receive_queue_msg: Worker ended - terminating')
 
@@ -623,6 +623,8 @@ def check_done_queue():
 
         except Empty:
             logging.debug('check_done_queue: Done queue is empty')
+        except:
+            logging.debug('check_done_queue: Unknown error in processing done queue')
 
 def establish_sqs_conn (queue):
 
