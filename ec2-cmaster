@@ -93,6 +93,45 @@ class ColorizingStreamHandler(logging.StreamHandler):
             message = '\n'.join(parts)
         return message
 
+def daemonize (foreground, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null' ):
+
+    if foreground is True:
+        logging.info ('Running delete process in foreground')
+        return 
+
+    try:
+        pid = os.fork( )
+        if pid > 0:
+            sys.exit(0) # Exit first parent.
+    except OSError, e:
+        sys.stderr.write("fork #1 failed: (%d) %s\n" % (e.errno, e.strerror))
+        sys.exit(1)
+    # Decouple from parent environment.
+    os.chdir("/")
+    os.umask(0)
+    os.setsid( )
+    # Perform second fork.
+    try:
+        pid = os.fork( )
+        if pid > 0:
+            sys.exit(0) # Exit second parent.
+    except OSError, e:
+        sys.stderr.write("fork #2 failed: (%d) %s\n" % (e.errno, e.strerror))
+        sys.exit(1)
+    # The process is now daemonized, redirect standard file descriptors.
+    for f in sys.stdout, sys.stderr: f.flush( )
+    si = file(stdin, 'r')
+    so = file(stdout, 'a+')
+    se = file(stderr, 'a+', 0)
+    os.dup2(si.fileno( ), sys.stdin.fileno( ))
+    os.dup2(so.fileno( ), sys.stdout.fileno( ))
+    os.dup2(se.fileno( ), sys.stderr.fileno( ))
+
+    sys.stderr.flush()
+    sys.stdout.flush()
+
+    return 
+
 def get_config():
     if not os.path.exists(CFILE):
         print CFILE + ' file does not exist'
@@ -232,12 +271,12 @@ def main():
     run (mode, cmd, wf, wof, timeout, script_param)
 
 # Signal handler
-def master_timeout(signum, frame):
-    logging.error('Timeout reached - exiting')
-    sys.exit(1)
+def delete_old_message_timeout(signum, frame):
+    logging.warn('Failed to delete old messages')
+    sys.exit(0)
 
 # When timeout happens master_timeout definition executes raising an exception
-signal.signal(signal.SIGALRM, master_timeout)
+signal.signal(signal.SIGALRM, delete_old_message_timeout)
 
 def response_disect(responses, mode, pingresp, cmdresp ):
 
@@ -444,6 +483,8 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
 
 def delete_org_message (write_queue, msg_ids):
 
+    daemonize (False, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null' )
+
     signal.alarm(CFG['general']['clean_timeout'])
 
     while ( True ):
@@ -643,7 +684,10 @@ def run(mode, cmd, wf, wof, timeout, script_param):
     (pingresp, cmdresp) = receive_responses (read_queue, org_ids, mode, timeout, wf, wof )
 
     # Delete original messags
-    delete_org_message (write_queue, org_ids)
+    D = Process(target=delete_org_message, args=(write_queue, org_ids))
+    D.daemon=False
+    D.start()
+    logging.debug('Forking process to delete old message ' + str(D.pid))
 
     # monitoring mode - output count of ping replies and exit
     if mode == 'count':
