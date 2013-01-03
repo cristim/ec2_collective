@@ -10,7 +10,7 @@ Why is it cool
 --------
 
 - *Decentralized*
-  With python, boto and an IAM user, you can command your servers from anywhere. You are not tied to a 'mamagement' server
+  With python, boto and an IAM user, you can command your servers from anywhere. You are not tied to a 'management' server
 
 - *No firewalll problems*
   All communication is through AWS SQS so there is no need to open for specific ports to/from your servers
@@ -48,13 +48,13 @@ And the long polling [document][LONGPOLLING]
 
 Messages containing commands are pushed by the master ( ec2-cmaster ) to a specific SQS queue where agents ( ec2-cagent ) are 'listening'. The agents are actually continuously polling the queue using the long polling SQS feature in order to limit the amount of requests towards AWS which bills by request. 
 
-All messages are received by all agents on that queue and processed. If the message facts matches the one of the agent, the agent first respond with a discovery reply by pushing a message on a different queue. This allows the master to know how many replies to expect. ( amount of agents with those specific facts ). The agent then performs the action included in the message and pushes the output and the status code of the execution to the same queue as the discovery reply where the master is listening.
+All messages are received by all agents on that queue and processed. If the message facts matches the one of the agent, the agent first respond with a discovery message by pushing a message on a different queue. This allows the master to discover how many agents are alive. ( amount of agents with those specific facts ). The agent then performs the action included in the message and pushes the output and the status code of the execution to the same queue as the discovery message where the master is listening.
 
-When the master has reached the default discovery timeout of 5 seconds it records how many agents to expect. It will then wait for that amount of agents to respond or break prematurely if the default command timeout of 10 seconds is reached. In all cases, it will print the output and status code from all the agents that managed to be discovered and which replied with command output. Along with that is a list of agents which was discovered but failed to repond with output within 10 seconds. During this time, the master will delete received messages from the queue and the one it had sent out to begin with. In other words, if an agent is not discovered within the first 5 seconds it does not exist.
+When the master has reached the default discovery timeout of 5 seconds it records how many agents it discovered. It will then wait for that amount of agents to respond with command output or break prematurely if the default command timeout of 10 seconds is reached. In all cases, it will print the output and status code from all the agents that managed to be discovered and which responded with command output. Along with that, is a list of agents which was discovered but failed to repond with output within 10 seconds. During this time, the master will delete received messages from the queue and in the end, fork a process that removes the message it had sent to begin with. To wrap things up - if an agent is not discovered within the first 5 seconds it does not exist.
 
-A number of things can happen within these 5 seconds that will make it seem as if Ec2_Collective is misbehaiving. One such case is that a few agents will never receive the message from the master because all expected agents have already replied and the original message has been deleted before the agents see it. Or the master never receives a reply because other master processes are reading those messages. In short, we rely heavily on timeouts and timely deliverability of messages. If we were to wait longer that 5 seconds for the discovery reply it would quickly become a slow tool to work with.
+A number of things can happen within these 5 seconds that will make it seem as if Ec2_Collective is misbehaiving. One such case is that a few agents will never receive the message from the master because all expected agents have already responded and the original message has been deleted before the agents sees it. Or the master never receives a response because other master processes are reading those messages. In short, we rely heavily on timeouts and timely deliverability of messages. If we were to wait longer that 5 seconds for the discovery reponse it would quickly become a slow tool to work with.
 
-Luckily we have introduced a safetynet which has proved itself to eliminate these problems. By using a facts queue, all agents will at a regular interval sent the list of facts which is has. This way the master can quickly query that queue with a visibility timeout of 0 ensuring that all other master processes are also able to read these messages. This allows the master to know how many agents to expect without having received a real-time discovery reply from them. That is why it is important that the configuration of the queues are done exactly as documented in this README.
+Luckily we have introduced a safetynet which has proved itself to eliminate these problems. By using a facts queue, all agents will at a regular interval sent the list of facts which is has. This way the master can quickly query that queue with a visibility timeout of 0 ensuring that all other master processes are also able to read these messages. This allows the master to know how many agents to expect without having received a real-time discovery response from them. This way we can prolong the discovery timeout if we expect a different amount of agents that what responded within 5 seconds. That is why it is important that the configuration of the queues are done exactly as documented in this README.
 
 Using a true publish / subscribe service like AWS SNS would have been prefererred, but suddenly you'll find youself opening ports to everyone to a service that can perform anything. There is some overhead in adding new subscribers and we're really aiming at having a 'zero configuration setup' cross servers and cloud providers.
 
@@ -87,7 +87,7 @@ Create those 3 queues with a prefix e.g. :
 
     Receive Message Wait Time: 0 seconds
 
-- *testing_facts* Cheat queue to allow publisher to know how many replies to expect
+- *testing_facts* Cheat queue to allow publisher to know how many responses to expect
 
     Default Visibility Timeout: 0 seconds
 
@@ -240,7 +240,7 @@ Edit your ec2-cmaster.json according to your queues.
             "log_level": "INFO",
             "cmd_timeout": 10,
             "ping_timeout": 5,
-            "clean_timeout": 15,
+            "clean_timeout": 5,
             "use_facts_queue": true
         },
         "aws": {

@@ -93,11 +93,7 @@ class ColorizingStreamHandler(logging.StreamHandler):
             message = '\n'.join(parts)
         return message
 
-def daemonize (foreground, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null' ):
-
-    if foreground is True:
-        logging.info ('Running delete process in foreground')
-        return 
+def daemonize (stdin='/dev/null', stdout=sys.stdout, stderr=sys.stderr ):
 
     try:
         pid = os.fork( )
@@ -272,7 +268,6 @@ def main():
 
 # Signal handler
 def delete_old_message_timeout(signum, frame):
-    logging.warn('Failed to delete old messages')
     sys.exit(0)
 
 # When timeout happens master_timeout definition executes raising an exception
@@ -413,7 +408,7 @@ def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
         # Add the command timeout to break if we never get a ping answer or cmd answer
         if ((int(time.time()) - start_time) >= timeout):
             logging.warn('cmd_timeout timeout reached ' + str(timeout) )
-	    logging.debug('Setting master exit code to 1 because of cmd timeout' )
+            logging.debug('Setting master exit code to 1 because of cmd timeout' )
             global MASTER_EC
             MASTER_EC=1
             break
@@ -441,7 +436,7 @@ def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
 
     logging.debug('pingresp, cmdresp: ' + str(len(pingresp)) + ', ' + str(len(cmdresp)))
 
-    return (pingresp, cmdresp)
+    return (pingresp, cmdresp, agents_to_expect)
 
 def pull_msgs (read_queue, org_ids, old_msgs ):
 
@@ -481,16 +476,22 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
     # Retrun all responses
     return (responses, old_msgs)
 
-def delete_org_message (write_queue, msg_ids):
+def delete_org_message (msg_ids):
 
-    daemonize (False, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null' )
+    daemonize (stdin='/dev/null', stdout='/dev/null', stderr='/dev/null' )
+
+    conn = establish_sqs_conn()
+    write_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['write_queue_suffix'])
+
+    if write_queue is None:
+        logging.error('Unable to get write_queue url by name')
+        sys.exit(1)
 
     signal.alarm(CFG['general']['clean_timeout'])
 
+    # We simply try to delete old messages for 'clean_timeout' period
     while ( True ):
-        msg_ids = pull_org_msgs (write_queue, msg_ids)
-        if len(msg_ids) == 0:
-            break
+        pull_org_msgs (write_queue, msg_ids)
 
     signal.alarm(0)
 
@@ -504,13 +505,6 @@ def pull_org_msgs(write_queue, msg_ids):
         if wmsg.id in msg_ids:
             if not write_queue.delete_message(wmsg):
                 logging.error('Failed to delete original command message')
-                continue
-            else:
-                del msg_ids[wmsg.id]
-        else:
-            continue
-
-    return msg_ids
 
 def fact_lookup (wf, wof, yaml_facts ):
     # Same engine from agent
@@ -670,21 +664,21 @@ def run(mode, cmd, wf, wof, timeout, script_param):
     conn = establish_sqs_conn()
 
     # Configure correct queue names
-    write_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['write_queue_suffix'])
     read_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['read_queue_suffix'])
+    write_queue = conn.get_queue(CFG['aws']['default_queue_name'] + CFG['aws']['write_queue_suffix'])
 
-    if write_queue is None or read_queue is None:
-        logging.error('Unable to get queue by name')
-        sys.exit(1)
+    if read_queue is None or write_queue is None:
+        logging.error('Unable to get queue url by name')
+        exit(1)
 
     # Construct message, send and receive
     message={'mode':mode,'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
     logging.debug('Message is ' + str(message))
     org_ids.update (write_msg(write_queue, message))
-    (pingresp, cmdresp) = receive_responses (read_queue, org_ids, mode, timeout, wf, wof )
+    (pingresp, cmdresp, agents_to_expect ) = receive_responses (read_queue, org_ids, mode, timeout, wf, wof )
 
     # Delete original messags
-    D = Process(target=delete_org_message, args=(write_queue, org_ids))
+    D = Process(target=delete_org_message, args=(org_ids,))
     D.daemon=False
     D.start()
     logging.debug('Forking process to delete old message ' + str(D.pid))
@@ -708,7 +702,7 @@ def run(mode, cmd, wf, wof, timeout, script_param):
 	logging.debug('Setting master exit code to 1 because of no responses' )
         MASTER_EC=1
 
-    output_str='Got response from ' + str(len(cmdresp)) + ' out of ' + str(len(pingresp)) + ' (discovered)' + ' - exit code ('+str(MASTER_EC)+')'
+    output_str='Got response from ' + str(len(cmdresp)) + ' out of ' + str(len(pingresp)) + '/' + str(agents_to_expect) + ' (discovered/expected)' + ' - exit code ('+str(MASTER_EC)+')'
     if int(MASTER_EC) == 0:
         logging.info(output_str)
     else:
