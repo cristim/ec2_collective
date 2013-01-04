@@ -328,7 +328,7 @@ def receive_facts ():
     old_msgs = {}
     agent_facts_resp={}
 
-    timeout=( CFG['general']['ping_timeout'] - 1 )
+    timeout=( CFG['general']['ping_timeout'] - 0.5)
     while ( True ):
         agent_facts, old_msgs = pull_agent_facts (facts_queue, old_msgs)
         if len(agent_facts) > 0:
@@ -353,7 +353,7 @@ def pull_agent_facts (facts_queue, old_msgs ):
     responses = {}
 
     # Receive at least 1 message be fore continuing 
-    rmsgs = facts_queue.get_messages(num_messages=10, visibility_timeout=0)
+    rmsgs = facts_queue.get_messages(num_messages=10, visibility_timeout=1)
 
     # For each message we check for duplicate, and if it is a response to our org message
     for rmsg in rmsgs:
