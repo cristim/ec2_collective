@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-from socket import gethostname
+from socket import gethostname, setdefaulttimeout
 import simplejson as json
 import subprocess
 import time
@@ -37,6 +37,9 @@ try:
 except pkg_resources.VersionConflict, e:
     sys.stderr.write('Boto 1.9b or higher is required - exiting\n')
     sys.exit(1)
+
+# Set a default timeout on all socket requests
+setdefaulttimeout(60)
 
 CFILE='/etc/ec2_collective/ec2-cagent.json'
 
