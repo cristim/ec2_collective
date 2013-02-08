@@ -33,9 +33,9 @@ from boto.sqs.regioninfo import SQSRegionInfo
 from boto.sqs import connect_to_region
 
 try:
-    pkg_resources.require("Boto>=1.9b")
+    pkg_resources.require("Boto>=2.0")
 except pkg_resources.VersionConflict, e:
-    sys.stderr.write('Boto 1.9b or higher is required - exiting\n')
+    sys.stderr.write('Boto 2.0 or higher is required - exiting\n')
     sys.exit(1)
 
 # Set a default timeout on all socket requests

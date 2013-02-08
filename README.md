@@ -30,7 +30,7 @@ Requirements
 
 * AWS account
 * Python > 2.6 < 3
-* Boto >= 1.9b
+* Boto >= 2.0 ( 2.0 includes the timeout code needed to avoid hanging httplib requests )
 
 Cost
 --------
