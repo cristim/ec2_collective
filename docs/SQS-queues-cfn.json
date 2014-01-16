@@ -1,0 +1,79 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+  "Parameters" : {
+    "QueuePrefix" : {
+      "Description" : "Namespace where to create the queues (testing -> testing_QUEUE_NAME)",
+      "Type" : "String",
+      "MinLength": "1",
+      "MaxLength": "80",
+      "AllowedPattern": "[a-zA-Z0-9]+",
+      "ConstraintDescription": "must be a valid queue name, alphanumeric characters only."
+    }
+  },
+
+  "Resources":
+    {
+    "MasterQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties" : {
+        "QueueName" : { "Fn::Join": ["", [{"Ref" : "QueuePrefix"}, "_master"]]},
+        "DelaySeconds": 0,
+        "MaximumMessageSize": 65536,
+        "MessageRetentionPeriod": 60,
+        "ReceiveMessageWaitTimeSeconds": 20,
+        "VisibilityTimeout": 0
+      }
+    },
+    "AgentQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName" : { "Fn::Join": ["", [{"Ref" : "QueuePrefix"}, "_agent"]]},
+        "DelaySeconds": 0,
+        "MaximumMessageSize": 65536,
+        "MessageRetentionPeriod": 60,
+        "ReceiveMessageWaitTimeSeconds": 0,
+        "VisibilityTimeout": 0
+      }
+    },
+    "FactsQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName" : { "Fn::Join": ["", [{"Ref" : "QueuePrefix"}, "_facts"]]},
+        "DelaySeconds": 0,
+        "MaximumMessageSize": 65536,
+        "MessageRetentionPeriod": 60,
+        "ReceiveMessageWaitTimeSeconds": 0,
+        "VisibilityTimeout": 0
+      }
+    }
+  },
+
+  "Outputs": {
+    "QueueURL": {
+      "Description": "URL of the Master SQS Queue",
+      "Value": { "Ref": "MasterQueue" }
+    },
+    "QueueARN": {
+      "Description": "ARN of the Master SQS Queue",
+      "Value": { "Fn::GetAtt": [ "MasterQueue", "Arn" ] }
+    },
+
+    "QueueURL": {
+      "Description": "URL of the Agent SQS Queue",
+      "Value": { "Ref": "AgentQueue" }
+    },
+    "QueueARN": {
+      "Description": "ARN of the Agent SQS Queue",
+      "Value": { "Fn::GetAtt": [ "AgentQueue", "Arn" ] }
+    },
+
+    "QueueURL": {
+      "Description": "URL of the Facts SQS Queue",
+      "Value": { "Ref": "FactsQueue" }
+    },
+    "QueueARN": {
+      "Description": "ARN of the Facts SQS Queue",
+      "Value": { "Fn::GetAtt": [ "FactsQueue", "Arn" ] }
+    }
+  }
+}
