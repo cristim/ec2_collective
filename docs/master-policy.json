@@ -1,0 +1,25 @@
+{
+  "Statement": [
+    {
+      "Action": [
+        "sqs:ListQueues",
+        "sqs:GetQueueAttributes"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:aws:sqs:*:*:*"
+      ]
+    },
+    {
+      "Action": [
+         "sqs:*"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:aws:sqs:*:*:*_agent",
+        "arn:aws:sqs:*:*:*_master",
+        "arn:aws:sqs:*:*:*_facts"
+      ]
+    }
+  ]
+}
