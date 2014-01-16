@@ -28,7 +28,7 @@ def calculate ( free_tier_req, dollar_pr_request ):
     yaml_write_requests_pr_day = ( (60 / YAML_FACTS_REFRESH) * 60 * SERVERS * 24)
     total_request_pr_month = ( (att_poll_requests_pr_day  + poll_request_pr_day + yaml_write_requests_pr_day) * DAYS_IN_MONTH )
     price_pr_month = ( (total_request_pr_month - free_tier_req) * dollar_pr_request )
-    print 'SQS check request amount to $' + str(poll_request_pr_day * DAYS_IN_MONTH * dollar_pr_request) 
+    print 'SQS check request amount to $' + str(poll_request_pr_day * DAYS_IN_MONTH * dollar_pr_request)
     print 'SQS attention check request amount to $' + str(att_poll_requests_pr_day * DAYS_IN_MONTH * dollar_pr_request)
     print 'SQS yaml request amount to $' + str(yaml_write_requests_pr_day * DAYS_IN_MONTH * dollar_pr_request)
     print 'SQS price pr month in $' + str(price_pr_month)

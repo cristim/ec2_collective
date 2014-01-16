@@ -1,4 +1,4 @@
-{ 
+{
     "general": {
         "log_level": "INFO",
         "cmd_timeout": 10,

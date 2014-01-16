@@ -4,7 +4,7 @@ cagent:
     Message Retention Period: 1 minutes
     Maximum Message Size: 64 KB
     Receive Message Wait Time: 0 seconds
-    
+
 cfacts:
 
     Default Visibility Timeout: 0 seconds

@@ -11,7 +11,7 @@ import os
 bucket_name='ec2collectivescripts'
 
 if len(sys.argv) <= 1:
-    print 'No filename provided' 
+    print 'No filename provided'
     sys.exit(1)
 else:
     full_file_name=str(sys.argv[1])
