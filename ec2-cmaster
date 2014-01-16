@@ -634,7 +634,7 @@ def establish_sqs_conn ():
 
     # Connect with key, secret and region
     try:
-        conn = connect_to_region(CFG['aws']['region'])
+        conn = connect_to_region(CFG['aws']['region'], proxy = CFG['aws']['proxy'], proxy_port = CFG['aws']['proxy_port'])
     except:
         logging.error('Could not connect to SQS - check your authentication')
         sys.exit(1)
