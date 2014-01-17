@@ -14,6 +14,7 @@ import string
 import logging
 from multiprocessing import Process, Queue, active_children
 from Queue import Empty
+from urlparse import urlparse
 
 # Create queues
 facts_pqueue = Queue()
@@ -631,12 +632,16 @@ def inhale_script (script_file):
     return f.read()
 
 def establish_sqs_conn ():
-
+    proxy_url = os.environ.get('https_proxy', None) or os.environ.get('http_proxy', None)
     # Connect with key, secret and region
     try:
-        conn = connect_to_region(CFG['aws']['region'], proxy = CFG['aws']['proxy'], proxy_port = CFG['aws']['proxy_port'])
-    except:
-        logging.error('Could not connect to SQS - check your authentication')
+        if proxy_url == None:
+            conn = connect_to_region(CFG['aws']['region'])
+        else:
+            my_proxy = urlparse(proxy_url)
+            conn = connect_to_region(CFG['aws']['region'], proxy = my_proxy.hostname, proxy_port = my_proxy.port)
+    except Exception as e:
+        logging.error('Could not connect to SQS - check your authentication. Error({0})'.format(e))
         sys.exit(1)
 
     return conn
