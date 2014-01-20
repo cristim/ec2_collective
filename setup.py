@@ -1,9 +1,8 @@
 from distutils.core import setup
-import os
 
 setup(
     name='ec2-collective',
-    version='0.0.' + (os.environ.get('BUILD_NUMBER') or '1'),
+    version='0.0.1',
     author='Cristian Magherusan-Stanciu',
     author_email='cristian.magherusan-stanciu@here.com',
     packages=[],
