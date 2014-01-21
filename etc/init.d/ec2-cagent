@@ -18,11 +18,6 @@ EC2_CAGENT=ec2-cagent
 PIDFILE=/var/run/ec2-cagent.pid
 IS_ACTIVE=1
 
-if ! [ -x $EC2_CAGENT ] ; then
-	echo "No ec2-cagent installed"
-	exit 0
-fi
-
 if [ -s $PIDFILE ]; then
 	PID=$(cat $PIDFILE)
 	if ps -p $PID > /dev/null 2>&1 ; then
