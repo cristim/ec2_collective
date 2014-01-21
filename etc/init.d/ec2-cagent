@@ -14,7 +14,7 @@
 ENV="env -i LANG=C PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 HOME=/root
 
-EC2_CAGENT=/usr/sbin/ec2-cagent
+EC2_CAGENT=ec2-cagent
 PIDFILE=/var/run/ec2-cagent.pid
 IS_ACTIVE=1
 
