@@ -382,6 +382,8 @@ def pull_agent_facts (facts_queue, old_msgs ):
     return (responses, old_msgs)
 
 def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
+    expected_agent_set=set()
+    responding_agent_set=set()
 
     ptimeout=CFG['general']['ping_timeout']
     total_responses = {}
@@ -397,7 +399,7 @@ def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
         try:
             agent_facts_resp = facts_pqueue.get(False)
             logging.debug('facts read from facts_pqueue')
-            agents_to_expect = count_agents(agent_facts_resp, wf, wof)
+            agents_to_expect, expected_agent_set = count_agents(agent_facts_resp, wf, wof, expected_agent_set)
         except Empty:
             logging.debug('facts_pqueue is empty')
 
@@ -434,9 +436,12 @@ def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
                     logging.debug('Ping timeout reached (' + str(ptimeout) + ') and got response from all expected agents')
                     break
 
+    for hostname in pingresp:
+        responding_agent_set.update([hostname])
+
     logging.debug('pingresp, cmdresp: ' + str(len(pingresp)) + ', ' + str(len(cmdresp)))
 
-    return (pingresp, cmdresp, agents_to_expect)
+    return (pingresp, cmdresp, agents_to_expect, responding_agent_set, expected_agent_set)
 
 def pull_msgs (read_queue, org_ids, old_msgs ):
 
@@ -567,15 +572,16 @@ def fact_lookup (wf, wof, yaml_facts ):
         logging.debug('Agent skip - no wf match')
         return True
 
-def count_agents (agent_facts_resp, wf, wof):
+def count_agents (agent_facts_resp, wf, wof, expected_agent_set):
     count=0
     for agent in agent_facts_resp:
         if fact_lookup (wf, wof, agent_facts_resp[agent]) == False:
+            expected_agent_set.update([agent_facts_resp[agent]['ec2_cagent_hostname']])
             count += 1
 
     logging.debug(str(count) + ' agent matched')
 
-    return count
+    return count, expected_agent_set
 
 def id_generator(size=10, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for x in range(size))
@@ -675,7 +681,7 @@ def run(mode, cmd, wf, wof, timeout, script_param):
     message={'mode':mode,'cmd':cmd, 'ts':time.time(), 'wf':wf, 'wof':wof, 'batch_msg_id':id_generator()}
     logging.debug('Message is ' + str(message))
     org_ids.update (write_msg(write_queue, message))
-    (pingresp, cmdresp, agents_to_expect ) = receive_responses (read_queue, org_ids, mode, timeout, wf, wof )
+    (pingresp, cmdresp, agents_to_expect, responding_agent_set, expected_agent_set ) = receive_responses (read_queue, org_ids, mode, timeout, wf, wof )
 
     # Delete original messags
     D = Process(target=delete_org_message, args=(org_ids,))
@@ -695,11 +701,15 @@ def run(mode, cmd, wf, wof, timeout, script_param):
                 logging.warn('Timeout in response from: ' + hostname)
 
         # If some of the expected servers did not answer we exit 1
-	logging.debug('Setting master exit code to 1 because discovery and response count differ')
+        logging.debug('Setting master exit code to 1 because discovery and response count differ')
         MASTER_EC=1
+    else:
+        expected_agent_set.difference_update(responding_agent_set)
+        for hostname in expected_agent_set:
+            logging.warn('Host expected but not responding: ' + hostname)
 
     if len(cmdresp) == 0 and len(pingresp) == 0:
-	logging.debug('Setting master exit code to 1 because of no responses' )
+        logging.debug('Setting master exit code to 1 because of no responses' )
         MASTER_EC=1
 
     output_str='Got response from ' + str(len(cmdresp)) + ' out of ' + str(len(pingresp)) + '/' + str(agents_to_expect) + ' (discovered/expected)' + ' - exit code ('+str(MASTER_EC)+')'
