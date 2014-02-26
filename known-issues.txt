@@ -3,6 +3,7 @@
 * BUG: If server runs low on memory, forking will stop working and main loop will fail to re-start threads even after memory recovery
 * BUG: Sometimes the agent will enter a state where everything stops. strace shows resource unavailable
 * FEATURE: Use watchdog function and supervisor for process control
+* BUG: sudo -i -u talend bash ./dw-tools/run_all_jobs.sh 2>&1 | bash tee /var/log/datawarehouse/all-jobs-last-run.log; bash echo ${PIPESTATUS[@]} will not succeed
 
 ############### ec2-cmaster
 * FEATURE: always write known hostname of agents that failed to respond
