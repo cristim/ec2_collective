@@ -14,6 +14,7 @@ import string
 import logging
 from multiprocessing import Process, Queue, active_children
 from Queue import Empty
+from urlparse import urlparse
 
 # Create queues
 facts_pqueue = Queue()
@@ -126,7 +127,7 @@ def daemonize (stdin='/dev/null', stdout=sys.stdout, stderr=sys.stderr ):
     sys.stderr.flush()
     sys.stdout.flush()
 
-    return 
+    return
 
 def get_config():
     if not os.path.exists(CFILE):
@@ -138,7 +139,7 @@ def get_config():
     except IOError, e:
         print ('Failed to open ' + CFILE + ' (%d) %s \n' % (e.errno, e.strerror))
         sys.exit(1)
-    
+
     try:
         global CFG
         CFG=json.load(fp)
@@ -211,7 +212,7 @@ def main():
     try:
         opts, args = getopt.getopt(sys.argv[1:], 'hc:w:n:t:p:q:ml:', ['help', 'command=', 'wf=', 'wc=', 'wof=', 'timeout=', 'script-parameters=', 'sqs-queue=', 'monitor', 'logfile='])
     except getopt.GetoptError, err:
-        print >>sys.stderr, str(err) 
+        print >>sys.stderr, str(err)
         return 1
 
     for o, a in opts:
@@ -308,8 +309,8 @@ def mode_cmd_response (response):
         MASTER_EC = int(rc)
 
     response_str = '>>>>>> ' + hostname + ' exit code: ('+str(rc)+'):\n' +  str(output)
- 
-    if int(rc) == 0: 
+
+    if int(rc) == 0:
         logging.info(response_str)
     else:
         logging.warn(response_str)
@@ -352,13 +353,13 @@ def pull_agent_facts (facts_queue, old_msgs ):
     response = None
     responses = {}
 
-    # Receive at least 1 message be fore continuing 
+    # Receive at least 1 message be fore continuing
     rmsgs = facts_queue.get_messages(num_messages=10, visibility_timeout=1)
 
     # For each message we check for duplicate, and if it is a response to our org message
     for rmsg in rmsgs:
 
-        # PUT FIRST Avoid duplicates 
+        # PUT FIRST Avoid duplicates
         if rmsg.id in old_msgs:
             continue
         else:
@@ -415,7 +416,7 @@ def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
             MASTER_EC=1
             break
 
-        # Discover with ping or agents_to_expect 
+        # Discover with ping or agents_to_expect
         if agents_to_expect == 0:
             if mode in [ 'ping','count' ]:
                 if (int(time.time()) - start_time) >= ptimeout:
@@ -448,13 +449,13 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
     response = None
     responses = {}
 
-    # Receive at least 1 message be fore continuing 
+    # Receive at least 1 message be fore continuing
     rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=1)
 
     # For each message we check for duplicate, and if it is a response to our org message
     for rmsg in rmsgs:
 
-        # PUT FIRST Avoid duplicates 
+        # PUT FIRST Avoid duplicates
         if rmsg.id in old_msgs:
             continue
         else:
@@ -504,9 +505,9 @@ def pull_org_msgs(write_queue, msg_ids):
 
     # Pick up written message and delete it
     wmsgs = write_queue.get_messages(num_messages=10, visibility_timeout=1)
-    
+
     for wmsg in wmsgs:
-    
+
         if wmsg.id in msg_ids:
             if not write_queue.delete_message(wmsg):
                 logging.error('Failed to delete original command message')
@@ -536,7 +537,7 @@ def fact_lookup (wf, wof, yaml_facts ):
         for f in wof:
             if '=' in f:
                 f = f.split('=')
-    
+
                 if (f[0] in yaml_facts) and (yaml_facts[f[0]] == f[1]):
                     logging.debug('Agent skip - wof matched')
                     return True
@@ -556,7 +557,7 @@ def fact_lookup (wf, wof, yaml_facts ):
     for f in wf:
         if '=' in f:
             f = f.split('=')
-   
+
             if (f[0] not in yaml_facts) or (yaml_facts[f[0]] != f[1]):
                 no_match += 1
         else:
@@ -637,12 +638,16 @@ def inhale_script (script_file):
     return f.read()
 
 def establish_sqs_conn ():
-
+    proxy_url = os.environ.get('https_proxy', None) or os.environ.get('http_proxy', None)
     # Connect with key, secret and region
     try:
-        conn = connect_to_region(CFG['aws']['region'])
-    except:
-        logging.error('Could not connect to SQS - check your authentication')
+        if proxy_url == None:
+            conn = connect_to_region(CFG['aws']['region'])
+        else:
+            my_proxy = urlparse(proxy_url)
+            conn = connect_to_region(CFG['aws']['region'], proxy = my_proxy.hostname, proxy_port = my_proxy.port)
+    except Exception as e:
+        logging.error('Could not connect to SQS - check your authentication. Error({0})'.format(e))
         sys.exit(1)
 
     return conn

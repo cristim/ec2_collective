@@ -171,7 +171,7 @@ def get_yaml_facts ():
         if type(data_from_file) is str:
             logging.debug('get_yaml_facts: Facts file looks to be string ' + str(yaml_file))
             fact_string = data_from_file.split()
-        
+
             for fact in fact_string:
                 newfact = {fact:'None'}
                 dataMap.update(newfact)
@@ -200,7 +200,7 @@ def cli_mode (message):
 
     except OSError, e:
         output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
-        rc = e.errno 
+        rc = e.errno
 
     response={'mode': message['mode'], 'output': output, 'rc': rc, 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
     return response
@@ -232,7 +232,7 @@ def fetch_s3_file ( s3_path, identifier ):
     except S3ResponseError:
         logging.error ('Failed to connect to S3')
         return (False, 'Failed to connect to S3')
-    
+
     try:
         bucket = s3conn.get_bucket(bucket_name)
     except S3ResponseError:
@@ -262,8 +262,8 @@ def script_mode (message):
         # script_file will include error message
         response={'mode': message['mode'], 'output': script_file, 'rc': '255', 'ts':time.time(), 'msg_id':message['orgid'], 'hostname':gethostname()};
         return response
-  
-    command=script_file 
+
+    command=script_file
 
     # If we are carrying script parameters, please use them
     if message['script_param'] is not None:
@@ -278,7 +278,7 @@ def script_mode (message):
     except OSError, e:
         logging.error ('Failed to execute ' + message['cmd'] )
         output = ('Failed to execute ' + message['cmd'] + ' (%d) %s \n' % (e.errno, e.strerror))
-        rc = e.errno 
+        rc = e.errno
 
     try:
         logging.debug ('script_mode: Deleting file with script '  + script_file)
@@ -291,12 +291,12 @@ def script_mode (message):
 
 def clean_old_msgs(read_msgs):
 
-    # Clear references to old messages ( keep messages until we haven't done anything for 2 minutes ) 
+    # Clear references to old messages ( keep messages until we haven't done anything for 2 minutes )
     # AWS SQS queues must have this setting
     # Message Retention Period:     1 minutes
     # That will allow AWS to purge old messages a minute before we might pick it up again.
 
-    for id, lastseen in read_msgs.items():    
+    for id, lastseen in read_msgs.items():
         if lastseen < (time.time() - 120 ):
             logging.debug('clean_old_msgs: removing old message')
             del read_msgs[id]
@@ -330,7 +330,7 @@ def receive_sqs_msg ( yaml_facts ):
             continue
         else:
             read_msgs[msg.id] = time.time()
-   
+
         message=json.loads(msg.get_body())
         batch_msg_id = message['batch_msg_id']
         wf = message['wf']
@@ -342,7 +342,7 @@ def receive_sqs_msg ( yaml_facts ):
             continue
         else:
             read_msgs[batch_msg_id] = time.time()
-  
+
         if fact_lookup(wf, wof, yaml_facts ):
             logging.debug('receive_sqs_msg: SQS messages did not pass filter')
             read_msgs[msg.id] = time.time()
@@ -377,7 +377,7 @@ def process_msg ( message ):
         response = cli_mode(message)
     elif mode in [ 'script', 's3' ]:
         logging.info('Performing ' + mode + ' execution')
-        response = script_mode (message) 
+        response = script_mode (message)
     else:
         logging.error('Unknown mode: ' + mode)
         response =  'Unknown command ' + cmd_str
@@ -433,7 +433,7 @@ def write_sqs_msg (response, sqs_write_queue):
     elif len(message) >= 65536:
         logging.error ('Response message is too big to put on SQS ' + str(len(message)))
         return False
-    
+
     # Retry 3 times
     for i in range(0, 3):
         logging.info ('Attempting write to SQS')
@@ -453,17 +453,17 @@ def write_sqs_msg (response, sqs_write_queue):
     return False
 
 def get_config():
-    # CFILE 
+    # CFILE
     if not os.path.exists(CFILE):
         sys.stderr.write('Config file (%s) does not exist\n' % (CFILE) )
         sys.exit(1)
-    
+
     try:
         f = open(CFILE, 'r')
     except IOError, e:
         sys.stderr.write('Failed to open config file (%s)\n' % (CFILE) )
         sys.exit(1)
-    
+
     try:
         global CFG
         CFG=json.load(f)
@@ -540,7 +540,7 @@ def fact_lookup (wf, wof, yaml_facts ):
 
    # Execptions where we need to be careful
 
-    # If yaml facts is false 
+    # If yaml facts is false
     if CFG['general']['yaml_facts'] == False:
         if wf is None and wof is None:
             logging.debug('fact_lookup: Process message - yaml_facts is False and message contains no facts')
@@ -549,8 +549,8 @@ def fact_lookup (wf, wof, yaml_facts ):
             logging.debug('fact_lookup: Skip message - yaml_facts is False but message contains facts')
             return True
 
-    # If yaml facts is true 
-    if CFG['general']['yaml_facts'] == True: 
+    # If yaml facts is true
+    if CFG['general']['yaml_facts'] == True:
         # but we have no facts skip everything
         if yaml_facts is None:
             logging.error('Skip message - yaml_facts is True but there are no facts available!')
@@ -567,7 +567,7 @@ def fact_lookup (wf, wof, yaml_facts ):
         for f in wof:
             if '=' in f:
                 f = f.split('=')
-    
+
                 if (f[0] in yaml_facts) and (yaml_facts[f[0]] == f[1]):
                     logging.debug('fact_lookup: Skip message - wof matched')
                     return True
@@ -587,7 +587,7 @@ def fact_lookup (wf, wof, yaml_facts ):
     for f in wf:
         if '=' in f:
             f = f.split('=')
-   
+
             if (f[0] not in yaml_facts) or (yaml_facts[f[0]] != f[1]):
                 no_match += 1
         else:
@@ -687,7 +687,7 @@ def main (yaml_facts=None, running_threads_last=0):
             if running_threads != running_threads_last:
                 running_threads_last = running_threads
                 logging.debug('main: ' + str(running_threads) + ' active threads')
- 
+
             if not thread_receiver.is_alive():
                 try:
                     thread_receiver.join(0.1)
@@ -698,7 +698,7 @@ def main (yaml_facts=None, running_threads_last=0):
                     logging.error('main: RuntimeError in thread_receiver control')
                 except:
                     logging.error('main: Uknown error in thread_receiver control')
-        
+
             if not thread_done_queue.is_alive():
                 try:
                     thread_done_queue.join(0.1)
@@ -709,7 +709,7 @@ def main (yaml_facts=None, running_threads_last=0):
                     logging.error('main: RuntimeError in thread_done_queue control')
                 except:
                     logging.error('main: Uknown error in thread_done_queue control')
-    
+
             if not thread_task_queue.is_alive():
                 try:
                     thread_task_queue.join(0.1)
@@ -731,7 +731,7 @@ def main (yaml_facts=None, running_threads_last=0):
                     logging.error('main: RuntimeError in thread_get_yaml_facts control')
                 except:
                     logging.error('main: Uknown error in thread_get_yaml_facts control')
-   
+
                 if yaml_queue.qsize() > 0:
                     try:
                         yaml_facts = yaml_queue.get(False)

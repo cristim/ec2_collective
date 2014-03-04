@@ -14,14 +14,9 @@
 ENV="env -i LANG=C PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 HOME=/root
 
-EC2_CAGENT=/usr/sbin/ec2-cagent
+EC2_CAGENT=`which ec2-cagent`
 PIDFILE=/var/run/ec2-cagent.pid
 IS_ACTIVE=1
-
-if ! [ -x $EC2_CAGENT ] ; then
-	echo "No ec2-cagent installed"
-	exit 0
-fi
 
 if [ -s $PIDFILE ]; then
 	PID=$(cat $PIDFILE)
