@@ -252,7 +252,7 @@ Edit your ec2-cmaster.json according to your queues.
         }
     }
 
-Configure AWS credentials on both your masters and slaves, either inside the Boto configuration or through [role-based access][LONGPOLLING].
+Configure AWS credentials on both your masters and slaves, either inside the Boto configuration or through [role-based access][ROLEAUTH].
 
 Usage
 -------
