@@ -194,7 +194,7 @@ def cli_mode (message):
 
     try:
         logging.debug ('cli_mode: Executing: ' + str(message['cmd']))
-        o = subprocess.Popen(message['cmd'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        o = subprocess.Popen(message['cmd'], shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, close_fds=True)
         output = o.communicate()[0]
         rc = o.poll()
 
@@ -271,7 +271,7 @@ def script_mode (message):
 
     try:
         logging.debug ('script_mode: Executing script: ' + str(message['cmd']) + ' with params: ' + str(message['script_param']))
-        o = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        o = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, close_fds=True)
         output = o.communicate()[0]
         rc = o.poll()
 
