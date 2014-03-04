@@ -1,7 +1,7 @@
 EC2_Collective
 ======
 
-An orchestration tool build on the ideas of MColletive but for the cloud by using AWS SQS as the queue service. 
+An orchestration tool build on the ideas of MColletive but for the cloud by using AWS SQS as the queue service.
 The agent will execute arbitrary commands and supports message filtering based on facts from e.g. puppet and queue isolation.
 
 NOTE: I'm not a developer, I just connect the dots - this is a prototype
@@ -35,7 +35,7 @@ Requirements
 Cost
 --------
 
-As with all Amazon Webservices there is a cost associated with its usage. 
+As with all Amazon Webservices there is a cost associated with its usage.
 Ec2_Collective will amount to something like $12 a month for 50 servers.
 Use the tools/sqs-price-calculator to calculate the price for your environment.
 
@@ -46,7 +46,7 @@ Please familiarize yourself with the standard [SQS][SQS] documentation
 
 And the long polling [document][LONGPOLLING]
 
-Messages containing commands are pushed by the master ( ec2-cmaster ) to a specific SQS queue where agents ( ec2-cagent ) are 'listening'. The agents are actually continuously polling the queue using the long polling SQS feature in order to limit the amount of requests towards AWS which bills by request. 
+Messages containing commands are pushed by the master ( ec2-cmaster ) to a specific SQS queue where agents ( ec2-cagent ) are 'listening'. The agents are actually continuously polling the queue using the long polling SQS feature in order to limit the amount of requests towards AWS which bills by request.
 
 All messages are received by all agents on that queue and processed. If the message facts matches the one of the agent, the agent first respond with a discovery message by pushing a message on a different queue. This allows the master to discover how many agents are alive. ( amount of agents with those specific facts ). The agent then performs the action included in the message and pushes the output and the status code of the execution to the same queue as the discovery message where the master is listening.
 
@@ -63,7 +63,7 @@ Setup
 
 ### AWS SQS queues
 
-I recommend basing your queues on your given environments. E.g. queues for testing, staging and production. For each environment 3 queues are required. 
+I recommend basing your queues on your given environments. E.g. queues for testing, staging and production. For each environment 3 queues are required.
 
 Create those 3 queues with a prefix e.g. :
 
@@ -119,7 +119,7 @@ Create a user for the agent with the following policy:
           "Action": [
             "sqs:GetQueueAttributes",
             "sqs:GetQueueUrl",
-            "sqs:ListQueues",      
+            "sqs:ListQueues",
             "sqs:ChangeMessageVisibility",
             "sqs:ChangeMessageVisibilityBatch",
             "sqs:SendMessage",
@@ -197,7 +197,7 @@ Edit your /etc/boto.cfg to contain
 
 Edit your ec2-cagent.json according to your queues and fact file locations.
 
-    { 
+    {
         "general": {
             "log_level": "INFO",
             "sqs_poll_interval": 1,
@@ -235,7 +235,7 @@ Edit your /etc/boto.cfg to contain
 
 Edit your ec2-cmaster.json according to your queues.
 
-    { 
+    {
         "general": {
             "log_level": "INFO",
             "cmd_timeout": 10,
@@ -252,9 +252,24 @@ Edit your ec2-cmaster.json according to your queues.
         }
     }
 
+Configure AWS credentials on both your masters and slaves, either inside the Boto configuration or through [role-based access][LONGPOLLING].
 
 Usage
 -------
 
+Make sure your agents are running
+
+    /etc/init.d/ec2-cagent start
+
+On the master you can trigger command executed on the slaves
+
+    user@master $ ec2-cmaster -c 'hostname -f'
+    >>>>>> slave.example.com exit code: (0):
+    slave.example.com
+
+    Got response from 1 out of 1/1 (discovered/expected) - exit code (0)
+
+
 [SQS]: http://docs.amazonwebservices.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/SQSConcepts.html
 [LONGPOLLING]: http://docs.amazonwebservices.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-long-polling.html
+[ROLEAUTH]: http://docs.aws.amazon.com/IAM/latest/UserGuide/role-usecase-ec2app.html
