@@ -450,7 +450,7 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
     responses = {}
 
     # Receive at least 1 message be fore continuing
-    rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=1)
+    rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=0)
 
     # For each message we check for duplicate, and if it is a response to our org message
     for rmsg in rmsgs:
@@ -473,8 +473,8 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
         responses[rmsg.id] = response
 
         # We're done with the message - delete it
-        if not read_queue.delete_message(rmsg):
-            logging.error('Failed to delete reponse message')
+#        if not read_queue.delete_message(rmsg):
+#            logging.error('Failed to delete reponse message')
 
         logging.debug(response)
 
