@@ -318,7 +318,7 @@ def receive_sqs_msg ( yaml_facts ):
 
     logging.info ('Attempting to get messages from SQS')
     try:
-        msgs = sqs_read_queue.get_messages(num_messages=10, visibility_timeout=0)
+        msgs = sqs_read_queue.get_messages(num_messages=10, visibility_timeout=0, wait_time_seconds=20)
     except:
         logging.error('Receive sqs messages thread exiting...')
         sys.exit(0)

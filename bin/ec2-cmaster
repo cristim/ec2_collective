@@ -353,8 +353,8 @@ def pull_agent_facts (facts_queue, old_msgs ):
     response = None
     responses = {}
 
-    # Receive at least 1 message be fore continuing
-    rmsgs = facts_queue.get_messages(num_messages=10, visibility_timeout=1)
+    # Receive at least 1 message before continuing
+    rmsgs = facts_queue.get_messages(num_messages=10, visibility_timeout=0, wait_time_seconds=20)
 
     # For each message we check for duplicate, and if it is a response to our org message
     for rmsg in rmsgs:
@@ -436,6 +436,7 @@ def receive_responses (read_queue, org_ids, mode, timeout, wf, wof ):
                 if (int(time.time()) - start_time) >= ptimeout and len(pingresp) >= agents_to_expect and len(cmdresp) >= len(pingresp):
                     logging.debug('Ping timeout reached (' + str(ptimeout) + ') and got response from all expected agents')
                     break
+        time.sleep(random.randint(0, 10))
 
     for hostname in pingresp:
         responding_agent_set.update([hostname])
@@ -449,8 +450,8 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
     response = None
     responses = {}
 
-    # Receive at least 1 message be fore continuing
-    rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=0)
+    # Receive at least 1 message before continuing
+    rmsgs = read_queue.get_messages(num_messages=10, visibility_timeout=0, wait_time_seconds=20)
 
     # For each message we check for duplicate, and if it is a response to our org message
     for rmsg in rmsgs:
@@ -471,10 +472,6 @@ def pull_msgs (read_queue, org_ids, old_msgs ):
             continue
 
         responses[rmsg.id] = response
-
-        # We're done with the message - delete it
-#        if not read_queue.delete_message(rmsg):
-#            logging.error('Failed to delete reponse message')
 
         logging.debug(response)
 
@@ -504,7 +501,7 @@ def delete_org_message (msg_ids):
 def pull_org_msgs(write_queue, msg_ids):
 
     # Pick up written message and delete it
-    wmsgs = write_queue.get_messages(num_messages=10, visibility_timeout=1)
+    wmsgs = write_queue.get_messages(num_messages=10, visibility_timeout=1, wait_time_seconds=20)
 
     for wmsg in wmsgs:
 
